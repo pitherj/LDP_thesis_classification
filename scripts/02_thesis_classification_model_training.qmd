@@ -1,0 +1,1832 @@
+---
+title: "Semi-Supervised Text Classification of Thesis Metadata"
+subtitle: "Classifying Ecology, Evolution, and Environment (EEE) Theses Using Tidymodels"
+author: "Jason Pither, with help from Claude.ai (Sonnet 4.5)"
+date: January 26, 2026
+format:
+  html:
+    toc: true
+    toc-location: left  
+    toc-depth: 3
+    code-fold: false
+    code-tools: true
+    theme: cosmo
+    embed-resources: true
+execute:
+  cache: true
+  warning: false
+  message: false
+---
+
+# Introduction
+
+## Overview
+
+This document demonstrates a **semi-supervised machine learning approach** to classify thesis metadata into two categories:
+
+1. **EEE (Ecology, Evolution, Environment)**: Theses related to ecological, evolutionary, or environmental sciences
+2. **Other**: All other thesis topics
+
+The classification is based solely on **text features** (thesis title and abstract), making the model generalizable to any thesis metadata regardless of available metadata fields like academic program.
+
+We have metadata for 4,272 theses (published between 2022 and 2024 inclusive), obtained from the University of British Columbia's [public database](https://open.library.ubc.ca/cIRcle/collections/ubctheses).  
+
+The metadata include a "Program" field that we can leverage for training purposes, and:
+
+- Some theses are from Zoology or Botany programs → definitely EEE
+- Most theses are from clearly non-EEE programs → definitely "other"
+- Some theses are from ambiguous programs (Geography, Biology, etc.) where some may be EEE but we don't know which
+
+The key challenge: **Some EEE theses are "hidden" in ambiguous programs**, and we don't know how many exist.
+
+## Our Approach: Iterative Semi-Supervised Learning
+
+We use an **active learning** strategy:
+
+1. Train initial model on theses with reliable labels
+2. Apply model to unlabeled theses
+3. Manually review high-confidence predictions
+4. Incorporate verified labels
+5. Retrain model with expanded dataset
+6. Repeat until satisfied
+
+This allows us to progressively discover hidden EEE theses and improve model performance with each iteration.
+
+# Setup
+
+## Load Required Packages
+
+```{r}
+#| label: load-packages
+
+# Core tidyverse for data manipulation
+library(tidyverse)
+
+# Tidymodels ecosystem for machine learning
+library(tidymodels)
+
+# Text preprocessing
+library(textrecipes)
+library(stopwords)
+
+# File path management
+library(here)
+
+# Parallel processing
+library(future)
+library(future.apply)
+
+# Model interpretation (for optional sections)
+library(vip)
+```
+
+## Package Overview
+
+- **tidyverse**: Data manipulation and visualization
+- **tidymodels**: Unified framework for modeling (includes `parsnip`, `recipes`, `workflows`, `tune`, `yardstick`)
+- **textrecipes**: Text-specific preprocessing steps for recipes
+- **stopwords**: Common word removal
+- **here**: Reproducible file paths
+- **future**: Modern parallel processing
+- **vip**: Variable importance plots
+
+# Data Preparation
+
+## Load Thesis Metadata
+
+```{r}
+#| label: load-data
+
+thesis_data <- readr::read_csv(
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "ubc_thesis_data.csv")
+)
+```
+
+Our dataset contains:
+
+- **DOI**: Unique identifier for each thesis
+- **Title**: Thesis title
+- **Description**: Thesis abstract
+- **Program (Theses)**: Academic program (used for labeling only, NOT as a model feature)
+
+## Create Combined Text Feature
+
+We combine title and abstract into a single text feature. This is what the model will learn from.
+
+```{r}
+#| label: combine-text
+
+thesis_data <- thesis_data %>%
+  dplyr::mutate(combined_text = paste(Title, Description, sep = " "))
+```
+
+**Why combine?** The model works with a single input, and both title and abstract contain informative terms. 
+
+## Rename Program Field
+
+Here we rename the Program field to be simpler.
+
+```{r}
+#| label: rename-program
+
+thesis_data <- thesis_data %>%
+  dplyr::rename(Program = "Program (Theses)")
+```
+
+# Creating Training Labels
+
+## Understanding the Labeling Strategy
+
+The academic program field is used **only for creating initial labels**, not as a model feature. This is crucial because the final model must work on thesis metadata that lack program information.
+
+## Identify Program Categories
+
+First, let's examine all unique programs to categorize them:
+
+```{r}
+#| label: explore-programs
+
+# Get all unique programs, sorted alphabetically
+unique_programs <- sort(unique(thesis_data$Program))
+
+# If you'd like to see the full list of programs, then uncomment this:
+# unique_programs
+```
+
+### Definite EEE Programs
+
+These programs are, by definition, focused on ecology, evolution, or environment:
+
+```{r}
+#| label: positive-programs
+
+positive_programs <- c("Zoology", "Botany")
+```
+
+### Definite Non-EEE Programs
+
+These programs have no ecological/evolutionary/environmental content. We identify them systematically by keyword:
+
+```{r}
+#| label: negative-programs
+
+# Extract programs by distinguishing keywords
+business <- unique_programs[grep("Business", unique_programs)]
+music <- unique_programs[grep("Music", unique_programs)]
+engineering <- unique_programs[grep("Engineering", unique_programs)]
+education <- unique_programs[grep("Education", unique_programs)]
+arts <- unique_programs[grep("Art", unique_programs)]
+human <- unique_programs[grep("Human", unique_programs)]
+physics <- unique_programs[grep("Physics", unique_programs)]
+pharma <- unique_programs[grep("Pharma", unique_programs)]
+culture <- unique_programs[grep("Cultur", unique_programs)]
+health <- unique_programs[grep("Health", unique_programs)]
+medical <- unique_programs[grep("Medic", unique_programs)]
+psych <- unique_programs[grep("Psychology", unique_programs)]
+
+# Programs with "Studies" (except food-related)
+studies <- unique_programs[grep("Studies", unique_programs)]
+studies <- studies[-grep("Food", studies)]
+
+# Programs with "Science" (except plant/earth/soil)
+science <- unique_programs[grep("Science", unique_programs)]
+science <- science[-sapply(c("Plant", "Earth", "Soil"), function(x) {grep(x, science)})]
+
+# Other obvious non-EEE programs
+others <- c(
+  "Anthropology", "Architecture", "Astronomy", "Chemistry", "Classics",
+  "Economics", "English", "French", "Geophysics", "History", "Journalism",
+  "Kinesiology", "Mathematics", "Law", "Nursing", "Neuroscience", "Philosophy", 
+  "Planning", "Sociology", "Statistics", "Surgery", "Theatre", 
+  "Applied Animal Biology", "Social Work", "Children's Literature", 
+  "Occupational and Environmental Hygiene", "Classical and Near Eastern Archaeology", 
+  "Cell and Developmental Biology", "Teaching English as a Second Language",
+  "Interdisciplinary Oncology", "Linguistics", 
+  "Gender, Race, Sexuality and Social Justice", "Landscape Architecture", 
+  "Measurement, Evaluation and Research Methodology", "Creative Writing", 
+  "Biochemistry and Molecular Biology"
+)
+
+# Combine all negative programs
+negative_programs <- c(
+  business, music, engineering, education, arts, human, physics, pharma,
+  culture, health, medical, psych, studies, science, others
+)
+```
+
+### Ambiguous Programs
+
+These programs might contain EEE theses but we can't be certain:
+
+```{r}
+#| label: check-ambiguous
+
+# Programs that are neither definitively EEE nor definitively non-EEE
+ambiguous_programs <- setdiff(unique_programs, c(negative_programs, positive_programs))
+print(ambiguous_programs)
+```
+
+These ambiguous programs (Geography, Biology, Forestry, etc.) are where we expect to find hidden EEE theses through our iterative approach.
+
+## Apply Labels
+
+Now we label all theses based on their program:
+
+```{r}
+#| label: apply-labels
+
+thesis_data <- thesis_data %>%
+  dplyr::mutate(
+    label_status = dplyr::case_when(
+      Program %in% positive_programs ~ "positive",
+      Program %in% negative_programs ~ "negative",
+      TRUE ~ "unlabeled"
+    ),
+    category = dplyr::case_when(
+      label_status == "positive" ~ "EEE",
+      label_status == "negative" ~ "other",
+      TRUE ~ NA_character_
+    ),
+    category = factor(category, levels = c("EEE", "other"))
+  )
+```
+
+**What's happening here?**
+
+- **label_status**: Tracks whether we're confident about the label
+- **category**: The actual classification (EEE vs. other)
+- **factor levels**: Explicitly set to ensure consistent ordering
+
+## Review Initial Labeling
+
+```{r}
+#| label: review-labeling
+
+# Summary by program and label status
+labeling_summary <- thesis_data %>%
+  dplyr::count(label_status, Program) %>%
+  dplyr::arrange(label_status, desc(n))
+
+print(labeling_summary)
+
+# Overall label distribution
+thesis_data %>%
+  dplyr::count(label_status)
+```
+
+# Initial Model Training
+
+## Extract Labeled Data
+
+We start by training on **only the reliably labeled data**:
+
+```{r}
+#| label: extract-labeled
+
+labeled_data <- thesis_data %>%
+  dplyr::filter(!is.na(category)) %>%
+  dplyr::select(DOI, combined_text, category, Title, Description)
+
+# Check class balance
+labeled_data %>% dplyr::count(category)
+```
+
+## Balance Classes
+
+Machine learning models can be biased toward the majority class. We **downsample** to ensure equal representation:
+
+```{r}
+#| label: balance-classes
+
+set.seed(123)  # For reproducibility
+
+min_class_size <- min(table(labeled_data$category))
+
+balanced_data <- labeled_data %>%
+  dplyr::group_by(category) %>%
+  dplyr::slice_sample(n = min_class_size) %>%
+  dplyr::ungroup()
+```
+
+Training with `r nrow(balanced_data)` balanced examples: `r sum(balanced_data$category == "EEE")` EEE and `r sum(balanced_data$category == "other")` other.
+
+**Why balance?** If we trained on imbalanced data (e.g., 90% "other"), the model might just predict "other" for everything and still achieve 90% accuracy.
+
+## Create Train/Test Split
+
+We hold out 20% of data to evaluate final model performance:
+
+```{r}
+#| label: train-test-split
+
+data_split <- rsample::initial_split(balanced_data, prop = 0.80, strata = category)
+train_data <- rsample::training(data_split)
+test_data <- rsample::testing(data_split)
+```
+
+**Stratified split**: Maintains the same class proportions in both train and test sets.
+
+## Create Cross-Validation Folds
+
+For hyperparameter tuning, we'll use 5-fold cross-validation:
+
+```{r}
+#| label: create-cv-folds
+
+cv_folds <- rsample::vfold_cv(train_data, v = 5, strata = category)
+```
+
+**What is cross-validation?** We split the training data into 5 parts. The model trains on 4 parts and tests on the 5th, rotating through all combinations. This gives us a robust estimate of model performance.
+
+# Text Preprocessing Recipe
+
+## Understanding the Recipe
+
+A **recipe** defines all preprocessing steps applied to raw data before modeling. Think of it as a blueprint that will be applied consistently to training data, test data, and future predictions.
+
+```{r}
+#| label: create-recipe
+
+text_recipe <- recipes::recipe(category ~ combined_text, data = train_data) %>%
+  textrecipes::step_tokenize(combined_text) %>%
+  textrecipes::step_stopwords(
+    combined_text, 
+    custom_stopword_source = stopwords::stopwords("en")
+  ) %>%
+  textrecipes::step_tokenfilter(
+    combined_text, 
+    min_times = 5, 
+    max_tokens = 5000
+  ) %>%
+  textrecipes::step_tfidf(combined_text) %>%
+  recipes::step_normalize(recipes::all_predictors())
+```
+
+## Recipe Steps Explained
+
+### 1. Tokenization
+
+**What it does:** Breaks text into individual words (tokens)
+
+- Input: `"Species diversity varies across ecosystems"`
+- Output: `["species", "diversity", "varies", "across", "ecosystems"]`
+
+### 2. Stopword Removal
+
+**What it does:** Removes common, uninformative words like "the", "and", "is"
+
+**Why?** These words appear in all documents regardless of topic and don't help distinguish EEE from non-EEE theses.
+
+### 3. Token Filtering
+
+**What it does:** 
+
+- `min_times = 5`: Removes tokens appearing in fewer than 5 documents (likely typos or rare jargon)
+- `max_tokens = 5000`: Keeps only the 5000 most frequent remaining tokens
+
+**Why?** Reduces noise and computational complexity while retaining informative terms.
+
+### 4. TF-IDF Transformation
+
+**What it does:** Converts tokens to numeric features using **Term Frequency-Inverse Document Frequency**
+
+**TF-IDF explained:**
+
+- **Term Frequency (TF)**: How often a word appears in a document
+- **Inverse Document Frequency (IDF)**: How rare a word is across all documents
+- **TF-IDF = TF × IDF**: Upweights words that are frequent in a document but rare overall
+
+**Example:**
+
+- Word "species" in an ecology thesis → high TF-IDF (frequent in this thesis, rare overall)
+- Word "analysis" everywhere → low TF-IDF (common across all theses)
+
+This gives each document a numeric vector where high values indicate distinctive, informative terms.
+
+### 5. Normalization
+
+**What it does:** Standardizes all features to mean=0, standard deviation=1
+
+**Why?** Regularized models (which we'll use) are sensitive to feature scale. Normalization ensures all tokens contribute proportionally.
+
+# Model Specification
+
+## Define the Model
+
+We use **elastic net regularized logistic regression**:
+
+```{r}
+#| label: model-specification
+
+logistic_spec <- parsnip::logistic_reg(
+  penalty = tune::tune(),
+  mixture = tune::tune()
+) %>%
+  parsnip::set_engine("glmnet") %>%
+  parsnip::set_mode("classification")
+```
+
+## Why This Model?
+
+### Logistic Regression
+
+Predicts the probability that a thesis is EEE:
+
+$$P(EEE) = \frac{1}{1 + e^{-(\beta_0 + \beta_1 x_1 + ... + \beta_p x_p)}}$$
+
+Where:
+
+- $\beta_i$ are coefficients learned from data
+- $x_i$ are TF-IDF features (one per token)
+
+Each token gets a coefficient indicating its association with EEE (positive) or other (negative).
+
+### Why Regularization?
+
+With 5000 potential features and only a few hundred training examples, we have a **high-dimensional problem**. Without regularization, the model would:
+
+- Overfit to training data
+- Assign importance to noise
+- Fail to generalize
+
+**Elastic net regularization** adds a penalty that:
+
+- Shrinks coefficients toward zero
+- Performs automatic feature selection
+- Improves generalization
+
+### Hyperparameters to Tune
+
+- **penalty (λ)**: Strength of regularization (higher = more shrinkage)
+- **mixture (α)**: Balance between L1 (lasso) and L2 (ridge) penalties
+  - α = 0: Ridge regression (shrinks all coefficients)
+  - α = 1: Lasso regression (sets some coefficients to exactly 0)
+  - 0 < α < 1: Elastic net (combination of both)
+
+## Create Workflow
+
+A **workflow** bundles the recipe and model together:
+
+```{r}
+#| label: create-workflow
+
+thesis_workflow <- workflows::workflow() %>%
+  workflows::add_recipe(text_recipe) %>%
+  workflows::add_model(logistic_spec)
+```
+
+This ensures preprocessing and modeling steps are always applied together consistently.
+
+# Hyperparameter Tuning
+
+## Define Tuning Grid
+
+We'll test 100 combinations of hyperparameters:
+
+```{r}
+#| label: tuning-grid
+
+tune_grid <- dials::grid_regular(
+  dials::penalty(range = c(-5, 0)),  # 10^-5 to 10^0
+  dials::mixture(range = c(0, 1)),    # 0 (ridge) to 1 (lasso)
+  levels = 10                          # 10 values each = 100 combinations
+)
+```
+
+## Run Tuning with Cross-Validation
+
+This tests all 100 combinations using 5-fold cross-validation:
+
+```{r}
+#| label: run-tuning
+
+# Set up parallel processing
+future::plan(multisession, workers = parallel::detectCores() - 1)
+
+tune_results <- thesis_workflow %>%
+  tune::tune_grid(
+    resamples = cv_folds,
+    grid = tune_grid,
+    metrics = yardstick::metric_set(accuracy, roc_auc, sens, spec),
+    control = tune::control_grid(save_pred = TRUE)
+  )
+
+# Return to sequential processing
+future::plan(sequential)
+```
+
+**What's happening?**
+
+For each of the 100 hyperparameter combinations:
+
+1. Train on 4 folds
+2. Test on the held-out fold
+3. Repeat for all 5 folds
+4. Average the performance metrics
+
+This gives us 500 model fits total (100 combinations × 5 folds).
+
+**Metrics tracked:**
+
+- **Accuracy**: Overall correct classification rate
+- **ROC AUC**: Quality of probability predictions (better for imbalanced data)
+- **Sensitivity**: True positive rate (EEE recall)
+- **Specificity**: True negative rate (other recall)
+
+## Select Best Hyperparameters
+
+```{r}
+#| label: select-best
+
+best_params <- tune_results %>%
+  tune::select_best(metric = "roc_auc")
+```
+
+Best hyperparameters selected:
+
+```{r}
+#| label: show-best-params
+#| echo: false
+
+knitr::kable(best_params)
+```
+
+**Hyperparameter Tuning Results Explained**
+
+This shows the optimal hyperparameters selected after testing 100 combinations (10 penalty values × 10 mixture values) through cross-validation.
+
+The .config Column
+`Preprocessor1_Model011` is just an internal identifier—it means this was the 11th hyperparameter combination tested out of 100.
+
+The "penalty" value (`r best_params$penalty`) indicates the **regularization strength** (λ in the equations). 
+
+- **Very low value** = minimal regularization
+- This means the model is allowed to use most of the available features (tokens) without much shrinkage
+- The model found that aggressive regularization wasn't needed—likely because of reasonably good signal-to-noise ratio in the text features
+
+The "mixture" value (`r best_params$mixture`) indicates a balance between L1 (lasso) and L2 (ridge) penalties (α in the equations).
+
+- Close to 0 = mostly ridge regression
+- Ridge shrinks all coefficients proportionally but keeps all features
+- Lasso (mixture = 1) would set some coefficients to exactly 0, performing feature selection
+- At the observed value of (`r best_params$mixture`), the model uses **mostly ridge with a touch of lasso**—it shrinks coefficients but doesn't aggressively eliminate features
+
+So, the current optimal model:
+- Uses **light regularization** (small penalty)
+- Keeps **most features** (low mixture = mostly ridge)
+- Suggests the TF-IDF features are informative and not too noisy
+
+With clear vocabulary differences between EEE and non-EEE theses:
+- Many terms are genuinely predictive ("species", "ecological" vs "clinical", "algorithm")
+- Heavy regularization would discard useful information
+- You benefit from keeping many terms with small weights rather than selecting just a few
+
+We use **ROC AUC** rather than accuracy because it evaluates performance across all possible classification thresholds, making it more robust.
+
+## Finalize Workflow
+
+```{r}
+#| label: finalize-workflow
+
+final_workflow <- thesis_workflow %>%
+  tune::finalize_workflow(best_params)
+```
+
+## Train Final Model
+
+Now we train using the best hyperparameters on all training data:
+
+```{r}
+#| label: train-final-model
+
+final_fit <- final_workflow %>%
+  parsnip::fit(data = balanced_data)
+```
+
+# Model Evaluation
+
+## Predictions on Test Set
+
+```{r}
+#| label: test-predictions
+
+test_predictions <- final_fit %>%
+  predict(test_data) %>%
+  dplyr::bind_cols(
+    final_fit %>% predict(test_data, type = "prob")
+  ) %>%
+  dplyr::bind_cols(test_data)
+```
+
+**What we get:**
+
+- `.pred_class`: Predicted category (EEE or other)
+- `.pred_EEE`: Probability of being EEE
+- `.pred_other`: Probability of being other
+
+## Performance Metrics
+
+```{r}
+#| label: test-metrics
+
+test_metrics <- test_predictions %>%
+  yardstick::metrics(truth = category, estimate = .pred_class)
+```
+
+Test set performance:
+
+```{r}
+#| label: show-test-metrics
+#| echo: false
+
+knitr::kable(test_metrics, digits = 3)
+```
+
+## Confusion Matrix
+
+```{r}
+#| label: confusion-matrix
+
+test_predictions %>%
+  yardstick::conf_mat(truth = category, estimate = .pred_class)
+```
+
+**How to read:**
+
+- **Rows**: True categories
+- **Columns**: Predicted categories
+- **Diagonal**: Correct predictions
+- **Off-diagonal**: Errors
+
+Clearly this model performed well, at least on the test set!
+
+## Class-Specific Metrics
+
+```{r}
+#| label: class-metrics
+
+sensitivity_val <- test_predictions %>% 
+  yardstick::sens(truth = category, estimate = .pred_class) %>% 
+  dplyr::pull(.estimate)
+
+specificity_val <- test_predictions %>% 
+  yardstick::spec(truth = category, estimate = .pred_class) %>% 
+  dplyr::pull(.estimate)
+```
+
+- **Sensitivity (EEE recall)**: `r round(sensitivity_val, 3)` - Of all true EEE theses, what proportion did we correctly identify?
+- **Specificity (Other recall)**: `r round(specificity_val, 3)` - Of all true "other" theses, what proportion did we correctly identify?
+
+# Apply Model to Unlabeled Data
+
+## Get Unlabeled Theses
+
+```{r}
+#| label: get-unlabeled
+
+unlabeled_data <- thesis_data %>%
+  dplyr::filter(label_status == "unlabeled") %>%
+  dplyr::select(DOI, Program, Title, Description, combined_text)
+```
+
+Predicting on `r nrow(unlabeled_data)` unlabeled theses.
+
+## Generate Predictions
+
+```{r}
+#| label: predict-unlabeled
+
+unlabeled_predictions <- final_fit %>%
+  predict(unlabeled_data, type = "prob") %>%
+  dplyr::bind_cols(
+    final_fit %>% predict(unlabeled_data, type = "class")
+  ) %>%
+  dplyr::bind_cols(unlabeled_data)
+```
+
+**Understanding the predictions:**
+
+When we call `predict()` with `type = "class"`, the function assigns a category using a **0.5 probability threshold**:
+
+- If P(EEE) > 0.5 → classified as "EEE"
+- If P(EEE) ≤ 0.5 → classified as "other"
+
+Using `type = "prob"` gives us the actual probabilities (`.pred_EEE` and `.pred_other`), which we can use to:
+
+- Assess model confidence
+- Apply custom thresholds (e.g., requiring P(EEE) > 0.8 for high-confidence classifications)
+- Sort candidates by confidence for manual review
+
+The 0.5 threshold assumes false positives and false negatives are equally costly. In our workflow, we review high-confidence predictions anyway, so this default works well. For production use on unlabeled data, you might adjust the threshold based on your tolerance for different types of errors.
+
+## Identify High-Confidence EEE Candidates
+
+```{r}
+#| label: identify-candidates
+
+eeb_candidates <- unlabeled_predictions %>%
+  dplyr::filter(.pred_class == "EEE") %>%
+  dplyr::arrange(desc(.pred_EEE)) %>%
+  dplyr::select(DOI, Program, Title, Description, .pred_EEE, .pred_class) %>%
+  dplyr::arrange(Program, Title)
+```
+
+Found `r nrow(eeb_candidates)` candidate EEE theses in unlabeled data.
+
+## Export for Manual Review
+
+```{r}
+#| label: export-candidates
+#| eval: false
+
+readr::write_csv(
+  eeb_candidates, 
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "ubc_eeb_candidate_theses_for_review_round1.csv")
+)
+```
+
+**Next step:** Manually review this file and create a CSV with columns:
+
+- `DOI`: Thesis identifier
+- `verified_category`: Your manual classification ("EEE" or "other")
+
+Save as `ubc_manually_reviewed_labels_round1.csv` for the next iteration.
+
+# Iterative Refinement
+
+## Round 1: Incorporate Manual Labels
+
+After manually reviewing the first round of candidates, we incorporate those labels:
+
+```{r}
+#| label: round1-load-labels
+
+manual_labels_round1 <- readr::read_csv(
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "ubc_manually_reviewed_labels_round1.csv")
+) %>%
+  dplyr::select(DOI, verified_category)
+
+# Check review results
+table(manual_labels_round1$verified_category)
+```
+
+So our manual assessment revealed `r table(manual_labels_round1$verified_category)[2]` theses that were categorized as "EEE", but determined to be "other".  
+
+### Merge with Original Data
+
+```{r}
+#| label: round1-merge
+
+thesis_data_v2 <- thesis_data %>%
+  dplyr::left_join(manual_labels_round1, by = "DOI") %>%
+  dplyr::mutate(
+    # Update category: use verified label if available, otherwise keep original
+    category = dplyr::coalesce(
+      factor(verified_category, levels = c("EEE", "other")), 
+      category
+    ),
+    # Update label_status: mark manually reviewed theses as labeled
+    label_status = dplyr::if_else(
+      !is.na(verified_category), 
+      dplyr::if_else(verified_category == "EEE", "positive", "negative"),
+      label_status
+    )
+  )
+```
+
+**What `coalesce()` does:** Uses the verified label if available, otherwise keeps the original label.
+
+### Check Expansion
+
+```{r}
+#| label: round1-check-expansion
+
+original_count <- sum(!is.na(thesis_data$category))
+round1_count <- sum(!is.na(thesis_data_v2$category))
+newly_added <- round1_count - original_count
+```
+
+**Label expansion summary:**
+
+- Original labeled theses: `r original_count`
+- After Round 1: `r round1_count`
+- Newly added labels: `r newly_added`
+
+### Save Updated Dataset
+
+```{r}
+#| label: round1-save
+#| eval: false
+
+readr::write_csv(
+  thesis_data_v2, 
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "ubc_thesis_data_with_manual_labels_v1.csv")
+)
+```
+
+## Round 1: Retrain Model
+
+Now we retrain with the expanded labeled dataset:
+
+```{r}
+#| label: round1-retrain
+
+# Extract labeled data
+labeled_data_v2 <- thesis_data_v2 %>%
+  dplyr::filter(!is.na(category)) %>%
+  dplyr::select(DOI, combined_text, category, Title, Description)
+
+# Balance classes
+set.seed(1234)
+min_class_size_v2 <- min(table(labeled_data_v2$category))
+
+balanced_data_v2 <- labeled_data_v2 %>%
+  dplyr::group_by(category) %>%
+  dplyr::slice_sample(n = min_class_size_v2) %>%
+  dplyr::ungroup()
+```
+
+Training with `r nrow(balanced_data_v2)` balanced examples: `r sum(balanced_data_v2$category == "EEE")` EEE and `r sum(balanced_data_v2$category == "other")` other.
+
+```{r}
+#| label: round1-split-folds
+
+# Split and create folds
+data_split_v2 <- rsample::initial_split(balanced_data_v2, prop = 0.80, strata = category)
+train_data_v2 <- rsample::training(data_split_v2)
+test_data_v2 <- rsample::testing(data_split_v2)
+cv_folds_v2 <- rsample::vfold_cv(train_data_v2, v = 5, strata = category)
+
+# Recipe
+text_recipe_v2 <- recipes::recipe(category ~ combined_text, data = train_data_v2) %>%
+  textrecipes::step_tokenize(combined_text) %>%
+  textrecipes::step_stopwords(
+    combined_text, 
+    custom_stopword_source = stopwords::stopwords("en")
+  ) %>%
+  textrecipes::step_tokenfilter(combined_text, min_times = 5, max_tokens = 5000) %>%
+  textrecipes::step_tfidf(combined_text) %>%
+  recipes::step_normalize(recipes::all_predictors())
+
+# Model specification
+logistic_spec_v2 <- parsnip::logistic_reg(
+  penalty = tune::tune(),
+  mixture = tune::tune()
+) %>%
+  parsnip::set_engine("glmnet") %>%
+  parsnip::set_mode("classification")
+
+# Workflow
+thesis_workflow_v2 <- workflows::workflow() %>%
+  workflows::add_recipe(text_recipe_v2) %>%
+  workflows::add_model(logistic_spec_v2)
+
+# Tuning
+tune_grid_v2 <- dials::grid_regular(
+  dials::penalty(range = c(-5, 0)),
+  dials::mixture(range = c(0, 1)),
+  levels = 10
+)
+
+future::plan(multisession, workers = parallel::detectCores() - 1)
+
+tune_results_v2 <- thesis_workflow_v2 %>%
+  tune::tune_grid(
+    resamples = cv_folds_v2,
+    grid = tune_grid_v2,
+    metrics = yardstick::metric_set(accuracy, roc_auc, sens, spec),
+    control = tune::control_grid(save_pred = TRUE)
+  )
+
+future::plan(sequential)
+
+# Select best and finalize
+best_params_v2 <- tune_results_v2 %>%
+  tune::select_best(metric = "roc_auc")
+
+final_workflow_v2 <- thesis_workflow_v2 %>%
+  tune::finalize_workflow(best_params_v2)
+
+final_fit_v2 <- final_workflow_v2 %>%
+  parsnip::fit(data = balanced_data_v2)
+```
+
+### Evaluate Round 1 Model
+
+```{r}
+#| label: round1-evaluate
+
+test_predictions_v2 <- final_fit_v2 %>%
+  predict(test_data_v2) %>%
+  dplyr::bind_cols(
+    final_fit_v2 %>% predict(test_data_v2, type = "prob")
+  ) %>%
+  dplyr::bind_cols(test_data_v2)
+
+test_metrics_v2 <- test_predictions_v2 %>%
+  yardstick::metrics(truth = category, estimate = .pred_class)
+```
+
+Test set performance (Round 1):
+
+```{r}
+#| label: round1-show-metrics
+#| echo: false
+
+knitr::kable(test_metrics_v2, digits = 3)
+```
+
+Confusion matrix (Round 1):
+
+```{r}
+#| label: round1-confusion
+#| echo: false
+
+test_predictions_v2 %>%
+  yardstick::conf_mat(truth = category, estimate = .pred_class)
+```
+Again, perfect performance!
+
+### Generate Round 2 Candidates
+
+```{r}
+#| label: round1-candidates
+
+unlabeled_data_v2 <- thesis_data_v2 %>%
+  dplyr::filter(label_status == "unlabeled") %>%
+  dplyr::select(DOI, Program, Title, Description, combined_text)
+
+unlabeled_predictions_v2 <- final_fit_v2 %>%
+  predict(unlabeled_data_v2, type = "prob") %>%
+  dplyr::bind_cols(
+    final_fit_v2 %>% predict(unlabeled_data_v2, type = "class")
+  ) %>%
+  dplyr::bind_cols(unlabeled_data_v2)
+
+eeb_candidates_v2 <- unlabeled_predictions_v2 %>%
+  dplyr::filter(.pred_class == "EEE") %>%
+  dplyr::arrange(desc(.pred_EEE)) %>%
+  dplyr::select(DOI, Program, Title, Description, .pred_EEE, .pred_class) %>%
+  dplyr::arrange(Program, Title)
+```
+
+Found `r nrow(eeb_candidates_v2)` candidate EEE theses for Round 2.
+
+```{r}
+#| label: round1-export
+#| eval: false
+
+readr::write_csv(
+  eeb_candidates_v2, 
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "ubc_eeb_candidate_theses_for_review_round2.csv")
+)
+```
+
+## Round 2: Manual Review and Retraining
+
+```{r}
+#| label: round2-process
+set.seed(12345)
+
+# Load Round 2 manual labels
+manual_labels_round2 <- readr::read_csv(
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "ubc_manually_reviewed_labels_round2.csv")
+) %>%
+  dplyr::select(DOI, verified_category)
+
+table(manual_labels_round2$verified_category)
+
+# Merge into v3
+thesis_data_v3 <- thesis_data_v2 %>%
+  dplyr::select(-verified_category) %>%  # Remove old column to avoid conflict
+  dplyr::left_join(manual_labels_round2, by = "DOI") %>%
+  dplyr::mutate(
+    category = dplyr::coalesce(
+      factor(verified_category, levels = c("EEE", "other")), 
+      category
+    ),
+    label_status = dplyr::if_else(
+      !is.na(verified_category), 
+      dplyr::if_else(verified_category == "EEE", "positive", "negative"),
+      label_status
+    )
+  )
+
+# Check progression
+round2_count <- sum(!is.na(thesis_data_v3$category))
+```
+
+After Round 2: `r round2_count` labeled theses.
+
+```{r}
+#| label: round2-retrain-prep
+#| echo: false
+
+# Retrain
+labeled_data_v3 <- thesis_data_v3 %>%
+  dplyr::filter(!is.na(category)) %>%
+  dplyr::select(DOI, combined_text, category, Title, Description)
+
+min_class_size_v3 <- min(table(labeled_data_v3$category))
+
+balanced_data_v3 <- labeled_data_v3 %>%
+  dplyr::group_by(category) %>%
+  dplyr::slice_sample(n = min_class_size_v3) %>%
+  dplyr::ungroup()
+```
+
+Training with `r nrow(balanced_data_v3)` balanced examples.
+
+```{r}
+#| label: round2-split-continue
+#| echo: false
+
+data_split_v3 <- rsample::initial_split(balanced_data_v3, prop = 0.80, strata = category)
+train_data_v3 <- rsample::training(data_split_v3)
+test_data_v3 <- rsample::testing(data_split_v3)
+cv_folds_v3 <- rsample::vfold_cv(train_data_v3, v = 5, strata = category)
+
+text_recipe_v3 <- recipes::recipe(category ~ combined_text, data = train_data_v3) %>%
+  textrecipes::step_tokenize(combined_text) %>%
+  textrecipes::step_stopwords(
+    combined_text, 
+    custom_stopword_source = stopwords::stopwords("en")
+  ) %>%
+  textrecipes::step_tokenfilter(combined_text, min_times = 5, max_tokens = 5000) %>%
+  textrecipes::step_tfidf(combined_text) %>%
+  recipes::step_normalize(recipes::all_predictors())
+
+logistic_spec_v3 <- parsnip::logistic_reg(
+  penalty = tune::tune(),
+  mixture = tune::tune()
+) %>%
+  parsnip::set_engine("glmnet") %>%
+  parsnip::set_mode("classification")
+
+thesis_workflow_v3 <- workflows::workflow() %>%
+  workflows::add_recipe(text_recipe_v3) %>%
+  workflows::add_model(logistic_spec_v3)
+
+tune_grid_v3 <- dials::grid_regular(
+  dials::penalty(range = c(-5, 0)),
+  dials::mixture(range = c(0, 1)),
+  levels = 10
+)
+
+future::plan(multisession, workers = parallel::detectCores() - 1)
+
+tune_results_v3 <- thesis_workflow_v3 %>%
+  tune::tune_grid(
+    resamples = cv_folds_v3,
+    grid = tune_grid_v3,
+    metrics = yardstick::metric_set(accuracy, roc_auc, sens, spec),
+    control = tune::control_grid(save_pred = TRUE)
+  )
+
+future::plan(sequential)
+
+best_params_v3 <- tune_results_v3 %>%
+  tune::select_best(metric = "roc_auc")
+
+final_workflow_v3 <- thesis_workflow_v3 %>%
+  tune::finalize_workflow(best_params_v3)
+
+final_fit_v3 <- final_workflow_v3 %>%
+  parsnip::fit(data = balanced_data_v3)
+
+# Evaluate
+test_predictions_v3 <- final_fit_v3 %>%
+  predict(test_data_v3) %>%
+  dplyr::bind_cols(
+    final_fit_v3 %>% predict(test_data_v3, type = "prob")
+  ) %>%
+  dplyr::bind_cols(test_data_v3)
+
+test_metrics_v3 <- test_predictions_v3 %>%
+  yardstick::metrics(truth = category, estimate = .pred_class)
+```
+
+Test set performance (Round 2):
+
+```{r}
+#| label: round2-show-metrics
+#| echo: false
+
+knitr::kable(test_metrics_v3, digits = 3)
+```
+
+This time it's not perfect, but close!
+
+```{r}
+#| label: round2-candidates-gen
+#| echo: false
+
+# Generate Round 3 candidates
+unlabeled_data_v3 <- thesis_data_v3 %>%
+  dplyr::filter(label_status == "unlabeled") %>%
+  dplyr::select(DOI, Program, Title, Description, combined_text)
+
+unlabeled_predictions_v3 <- final_fit_v3 %>%
+  predict(unlabeled_data_v3, type = "prob") %>%
+  dplyr::bind_cols(
+    final_fit_v3 %>% predict(unlabeled_data_v3, type = "class")
+  ) %>%
+  dplyr::bind_cols(unlabeled_data_v3)
+
+eeb_candidates_v3 <- unlabeled_predictions_v3 %>%
+  dplyr::filter(.pred_class == "EEE") %>%
+  dplyr::arrange(desc(.pred_EEE)) %>%
+  dplyr::select(DOI, Program, Title, Description, .pred_EEE, .pred_class) %>%
+  dplyr::arrange(Program, Title)
+```
+
+Found `r nrow(eeb_candidates_v3)` candidate EEE theses for Round 3.
+
+## Round 3: Manual Review and Retraining
+
+```{r}
+#| label: round3-process
+set.seed(123456)
+# Load Round 3 manual labels
+manual_labels_round3 <- readr::read_csv(
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "ubc_manually_reviewed_labels_round3.csv")
+) %>%
+  dplyr::select(DOI, verified_category)
+
+table(manual_labels_round3$verified_category)
+
+# Merge into v4
+thesis_data_v4 <- thesis_data_v3 %>%
+  dplyr::select(-verified_category) %>%
+  dplyr::left_join(manual_labels_round3, by = "DOI") %>%
+  dplyr::mutate(
+    category = dplyr::coalesce(
+      factor(verified_category, levels = c("EEE", "other")), 
+      category
+    ),
+    label_status = dplyr::if_else(
+      !is.na(verified_category), 
+      dplyr::if_else(verified_category == "EEE", "positive", "negative"),
+      label_status
+    )
+  )
+
+round3_count <- sum(!is.na(thesis_data_v4$category))
+```
+
+After Round 3: `r round3_count` labeled theses.
+
+```{r}
+#| label: round3-retrain-prep
+#| echo: false
+
+# Retrain
+labeled_data_v4 <- thesis_data_v4 %>%
+  dplyr::filter(!is.na(category)) %>%
+  dplyr::select(DOI, combined_text, category, Title, Description)
+
+min_class_size_v4 <- min(table(labeled_data_v4$category))
+
+balanced_data_v4 <- labeled_data_v4 %>%
+  dplyr::group_by(category) %>%
+  dplyr::slice_sample(n = min_class_size_v4) %>%
+  dplyr::ungroup()
+```
+
+Training with `r nrow(balanced_data_v4)` balanced examples.
+
+```{r}
+#| label: round3-split-continue
+#| echo: false
+
+data_split_v4 <- rsample::initial_split(balanced_data_v4, prop = 0.80, strata = category)
+train_data_v4 <- rsample::training(data_split_v4)
+test_data_v4 <- rsample::testing(data_split_v4)
+cv_folds_v4 <- rsample::vfold_cv(train_data_v4, v = 5, strata = category)
+
+text_recipe_v4 <- recipes::recipe(category ~ combined_text, data = train_data_v4) %>%
+  textrecipes::step_tokenize(combined_text) %>%
+  textrecipes::step_stopwords(
+    combined_text, 
+    custom_stopword_source = stopwords::stopwords("en")
+  ) %>%
+  textrecipes::step_tokenfilter(combined_text, min_times = 5, max_tokens = 5000) %>%
+  textrecipes::step_tfidf(combined_text) %>%
+  recipes::step_normalize(recipes::all_predictors())
+
+logistic_spec_v4 <- parsnip::logistic_reg(
+  penalty = tune::tune(),
+  mixture = tune::tune()
+) %>%
+  parsnip::set_engine("glmnet") %>%
+  parsnip::set_mode("classification")
+
+thesis_workflow_v4 <- workflows::workflow() %>%
+  workflows::add_recipe(text_recipe_v4) %>%
+  workflows::add_model(logistic_spec_v4)
+
+tune_grid_v4 <- dials::grid_regular(
+  dials::penalty(range = c(-5, 0)),
+  dials::mixture(range = c(0, 1)),
+  levels = 10
+)
+
+future::plan(multisession, workers = parallel::detectCores() - 1)
+
+tune_results_v4 <- thesis_workflow_v4 %>%
+  tune::tune_grid(
+    resamples = cv_folds_v4,
+    grid = tune_grid_v4,
+    metrics = yardstick::metric_set(accuracy, roc_auc, sens, spec),
+    control = tune::control_grid(save_pred = TRUE)
+  )
+
+future::plan(sequential)
+
+best_params_v4 <- tune_results_v4 %>%
+  tune::select_best(metric = "roc_auc")
+
+final_workflow_v4 <- thesis_workflow_v4 %>%
+  tune::finalize_workflow(best_params_v4)
+
+final_fit_v4 <- final_workflow_v4 %>%
+  parsnip::fit(data = balanced_data_v4)
+
+# Evaluate
+test_predictions_v4 <- final_fit_v4 %>%
+  predict(test_data_v4) %>%
+  dplyr::bind_cols(
+    final_fit_v4 %>% predict(test_data_v4, type = "prob")
+  ) %>%
+  dplyr::bind_cols(test_data_v4)
+
+test_metrics_v4 <- test_predictions_v4 %>%
+  yardstick::metrics(truth = category, estimate = .pred_class)
+```
+
+Test set performance (Round 3):
+
+```{r}
+#| label: round3-show-metrics
+#| echo: false
+
+knitr::kable(test_metrics_v4, digits = 3)
+```
+
+Again, not perfect, but close.
+
+
+```{r}
+#| label: round3-candidates-gen
+#| echo: false
+
+# Generate Round 4 candidates
+unlabeled_data_v4 <- thesis_data_v4 %>%
+  dplyr::filter(label_status == "unlabeled") %>%
+  dplyr::select(DOI, Program, Title, Description, combined_text)
+
+unlabeled_predictions_v4 <- final_fit_v4 %>%
+  predict(unlabeled_data_v4, type = "prob") %>%
+  dplyr::bind_cols(
+    final_fit_v4 %>% predict(unlabeled_data_v4, type = "class")
+  ) %>%
+  dplyr::bind_cols(unlabeled_data_v4)
+
+eeb_candidates_v4 <- unlabeled_predictions_v4 %>%
+  dplyr::filter(.pred_class == "EEE") %>%
+  dplyr::arrange(desc(.pred_EEE)) %>%
+  dplyr::select(DOI, Program, Title, Description, .pred_EEE, .pred_class) %>%
+  dplyr::arrange(Program, Title)
+```
+
+Found `r nrow(eeb_candidates_v4)` candidate EEE theses for Round 4.
+
+## Round 4: Final Iteration
+
+```{r}
+#| label: round4-process
+set.seed(1234)
+# Load Round 4 manual labels
+manual_labels_round4 <- readr::read_csv(
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "ubc_manually_reviewed_labels_round4.csv")
+) %>%
+  dplyr::select(DOI, verified_category)
+
+table(manual_labels_round4$verified_category)
+
+# Merge into v5 (final)
+thesis_data_v5 <- thesis_data_v4 %>%
+  dplyr::select(-verified_category) %>%
+  dplyr::left_join(manual_labels_round4, by = "DOI") %>%
+  dplyr::mutate(
+    category = dplyr::coalesce(
+      factor(verified_category, levels = c("EEE", "other")), 
+      category
+    ),
+    label_status = dplyr::if_else(
+      !is.na(verified_category), 
+      dplyr::if_else(verified_category == "EEE", "positive", "negative"),
+      label_status
+    )
+  )
+```
+
+**Label progression summary:**
+
+```{r}
+#| label: progression-summary
+#| echo: false
+
+progression <- tibble::tibble(
+  Iteration = c("Original (v1)", "Round 1 (v2)", "Round 2 (v3)", "Round 3 (v4)", "Round 4 (v5)"),
+  `Labeled Theses` = c(
+    sum(!is.na(thesis_data$category)),
+    sum(!is.na(thesis_data_v2$category)),
+    sum(!is.na(thesis_data_v3$category)),
+    sum(!is.na(thesis_data_v4$category)),
+    sum(!is.na(thesis_data_v5$category))
+  )
+)
+
+knitr::kable(progression)
+```
+
+```{r}
+#| label: final-training-prep
+#| echo: false
+
+# Final training
+labeled_data_v5 <- thesis_data_v5 %>%
+  dplyr::filter(!is.na(category)) %>%
+  dplyr::select(DOI, combined_text, category, Title, Description)
+
+min_class_size_v5 <- min(table(labeled_data_v5$category))
+
+balanced_data_v5 <- labeled_data_v5 %>%
+  dplyr::group_by(category) %>%
+  dplyr::slice_sample(n = min_class_size_v5) %>%
+  dplyr::ungroup()
+```
+
+Training with `r nrow(balanced_data_v5)` balanced examples: `r sum(balanced_data_v5$category == "EEE")` EEE and `r sum(balanced_data_v5$category == "other")` other.
+
+```{r}
+#| label: final-split
+#| echo: false
+
+data_split_v5 <- rsample::initial_split(balanced_data_v5, prop = 0.80, strata = category)
+train_data_v5 <- rsample::training(data_split_v5)
+test_data_v5 <- rsample::testing(data_split_v5)
+cv_folds_v5 <- rsample::vfold_cv(train_data_v5, v = 5, strata = category)
+
+text_recipe_v5 <- recipes::recipe(category ~ combined_text, data = train_data_v5) %>%
+  textrecipes::step_tokenize(combined_text) %>%
+  textrecipes::step_stopwords(
+    combined_text, 
+    custom_stopword_source = stopwords::stopwords("en")
+  ) %>%
+  textrecipes::step_tokenfilter(combined_text, min_times = 5, max_tokens = 5000) %>%
+  textrecipes::step_tfidf(combined_text) %>%
+  recipes::step_normalize(recipes::all_predictors())
+
+logistic_spec_v5 <- parsnip::logistic_reg(
+  penalty = tune::tune(),
+  mixture = tune::tune()
+) %>%
+  parsnip::set_engine("glmnet") %>%
+  parsnip::set_mode("classification")
+
+thesis_workflow_v5 <- workflows::workflow() %>%
+  workflows::add_recipe(text_recipe_v5) %>%
+  workflows::add_model(logistic_spec_v5)
+
+tune_grid_v5 <- dials::grid_regular(
+  dials::penalty(range = c(-5, 0)),
+  dials::mixture(range = c(0, 1)),
+  levels = 10
+)
+
+future::plan(multisession, workers = parallel::detectCores() - 1)
+
+tune_results_v5 <- thesis_workflow_v5 %>%
+  tune::tune_grid(
+    resamples = cv_folds_v5,
+    grid = tune_grid_v5,
+    metrics = yardstick::metric_set(accuracy, roc_auc, sens, spec),
+    control = tune::control_grid(save_pred = TRUE)
+  )
+
+future::plan(sequential)
+
+best_params_v5 <- tune_results_v5 %>%
+  tune::select_best(metric = "roc_auc")
+```
+
+Best hyperparameters (Round 4):
+
+```{r}
+#| label: show-best-params-v5
+#| echo: false
+
+knitr::kable(best_params_v5)
+```
+
+```{r}
+#| label: finalize-fit-v5
+#| echo: false
+
+final_workflow_v5 <- thesis_workflow_v5 %>%
+  tune::finalize_workflow(best_params_v5)
+
+final_fit_v5 <- final_workflow_v5 %>%
+  parsnip::fit(data = balanced_data_v5)
+```
+
+## Final Model Performance
+
+```{r}
+#| label: final-performance
+
+test_predictions_v5 <- final_fit_v5 %>%
+  predict(test_data_v5) %>%
+  dplyr::bind_cols(
+    final_fit_v5 %>% predict(test_data_v5, type = "prob")
+  ) %>%
+  dplyr::bind_cols(test_data_v5)
+
+test_metrics_v5 <- test_predictions_v5 %>%
+  yardstick::metrics(truth = category, estimate = .pred_class)
+
+sensitivity_v5 <- test_predictions_v5 %>% 
+  yardstick::sens(truth = category, estimate = .pred_class) %>% 
+  dplyr::pull(.estimate)
+
+specificity_v5 <- test_predictions_v5 %>% 
+  yardstick::spec(truth = category, estimate = .pred_class) %>% 
+  dplyr::pull(.estimate)
+```
+
+Final test set performance:
+
+```{r}
+#| label: show-final-metrics
+#| echo: false
+
+knitr::kable(test_metrics_v5, digits = 3)
+```
+
+Final confusion matrix:
+
+```{r}
+#| label: final-confusion
+#| echo: false
+
+test_predictions_v5 %>%
+  yardstick::conf_mat(truth = category, estimate = .pred_class)
+```
+
+- **Sensitivity (EEE recall)**: `r round(sensitivity_v5, 3)`
+- **Specificity (Other recall)**: `r round(specificity_v5, 3)`
+
+## Remaining Unlabeled Theses
+
+```{r}
+#| label: final-unlabeled
+
+unlabeled_data_v5 <- thesis_data_v5 %>%
+  dplyr::filter(label_status == "unlabeled") %>%
+  dplyr::select(DOI, Program, Title, Description, combined_text)
+
+unlabeled_predictions_v5 <- final_fit_v5 %>%
+  predict(unlabeled_data_v5, type = "prob") %>%
+  dplyr::bind_cols(
+    final_fit_v5 %>% predict(unlabeled_data_v5, type = "class")
+  ) %>%
+  dplyr::bind_cols(unlabeled_data_v5)
+
+eeb_candidates_v5 <- unlabeled_predictions_v5 %>%
+  dplyr::filter(.pred_class == "EEE") %>%
+  dplyr::arrange(desc(.pred_EEE)) %>%
+  dplyr::select(DOI, Program, Title, Description, .pred_EEE, .pred_class) %>%
+  dplyr::arrange(Program, Title)
+```
+
+Remaining unlabeled theses: `r nrow(unlabeled_data_v5)`. Found `r nrow(eeb_candidates_v5)` candidate EEE theses in remaining data.
+
+With only `r nrow(unlabeled_data_v5)` unlabeled theses and `r nrow(eeb_candidates_v5)` candidates remaining, we've reached a natural stopping point. The iterative process has successfully labeled `r round((1 - nrow(unlabeled_data_v5)/nrow(thesis_data)) * 100, 1)`% of the dataset.
+
+# Save Final Model
+
+## Export Production Model
+
+```{r}
+#| label: save-model
+#| eval: false
+
+saveRDS(
+  final_fit_v5, 
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "eee_text_classifier.rds")
+)
+```
+
+## Save Model Metadata
+
+```{r}
+#| label: save-metadata
+#| eval: false
+
+model_info <- list(
+  model_file = "eee_text_classifier.rds",
+  training_date = Sys.Date(),
+  training_size = nrow(balanced_data_v5),
+  n_eeb = sum(balanced_data_v5$category == "EEE"),
+  n_other = sum(balanced_data_v5$category == "other"),
+  test_accuracy = test_metrics_v5 %>%
+    dplyr::filter(.metric == "accuracy") %>%
+    dplyr::pull(.estimate),
+  features = "Title + Description",
+  note = "Model works on any thesis with Title & Description"
+)
+
+saveRDS(
+  model_info, 
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "eee_text_classifier_model_info.rds")
+)
+```
+
+# Using the Model on New Data
+
+## Loading and Applying the Model
+
+```{r}
+#| label: example-usage
+#| eval: false
+
+# Load the saved model
+model <- readRDS(
+  here::here("data", "processed_data", "comparator-theses", 
+             "training-data", "eee_text_classifier.rds")
+)
+
+# Prepare new data (must have 'Title' and 'Description' columns)
+
+# **Note**
+# UBC's use of the "Description" field name is unusual; most others
+# will likely use "Abstract", and all thesis metadata downloaded from
+# the Library Archives of Canada use "Abstract", so:
+
+new_theses <- readr::read_csv("path/to/new_theses.csv") %>%
+  dplyr::mutate(combined_text = paste(Title, Abstract, sep = " "))
+
+# Generate predictions
+predictions <- model %>%
+  predict(new_theses, type = "prob") %>%
+  dplyr::bind_cols(model %>% predict(new_theses, type = "class")) %>%
+  dplyr::bind_cols(new_theses)
+
+# Filter high-confidence EEE predictions
+eee_predictions <- predictions %>%
+  dplyr::filter(.pred_EEE > 0.80) %>%
+  dplyr::arrange(desc(.pred_EEE))
+```
+
+# Find publications from thesis authors
+
+In this step, we first identify the author ("Creator") of the thesis.  Later, a different script can use that author name to find publications that could be associated with the thesis research.
+
+```{r}
+#| label: find-author
+#| eval: false
+
+# TO BE COMPLETED
+
+
+```
+
+
+## Understanding Classification Thresholds
+
+The default classification threshold is **0.5**: 
+
+- P(EEE) > 0.5 → classify as "EEE"
+- P(EEE) ≤ 0.5 → classify as "other"
+
+You can adjust this threshold based on your use case:
+
+```{r}
+#| label: custom-threshold
+#| eval: false
+
+# For high precision (fewer false positives)
+high_confidence_eee <- predictions %>%
+  dplyr::mutate(
+    custom_class = dplyr::if_else(.pred_EEE >= 0.8, "EEE", "other")
+  )
+
+# For high recall (catch more true EEE, accept false positives)
+liberal_eee <- predictions %>%
+  dplyr::mutate(
+    custom_class = dplyr::if_else(.pred_EEE >= 0.4, "EEE", "other")
+  )
+```
+
+# Summary and Key Takeaways
+
+Starting with **560 unlabeled theses** from ambiguous programs, through 4 rounds of iterative manual review, we:
+
+1. Labeled **395 additional theses** through active learning
+2. Achieved **100% test accuracy** on the final model
+3. Reduced unlabeled theses to **165** (only 3.9% of dataset)
+4. Created a production-ready classifier requiring only title and abstract
+
+## Lessons
+
+### 1. Semi-Supervised Learning Works
+
+When you have:
+
+- Reliable positive examples (Zoology/Botany)
+- Reliable negative examples (clearly non-EEE programs)
+- Unlabeled data containing hidden positives
+
+**Active learning** efficiently discovers hidden examples through iterative human-in-the-loop refinement.
+
+### 2. Text Features Are Powerful
+
+Using only **title and abstract**, the model learned to distinguish:
+
+- **EEE terms**: "species", "ecological", "biodiversity", "conservation"
+- **Non-EEE terms**: "cancer", "clinical", "treatment", "algorithm"
+
+This vocabulary-based approach generalizes well beyond program names.
+
+### 3. Minimal Regularization Was Sufficient
+
+The optimal hyperparameters (penalty = 0.00001, mixture = 0) reveal that:
+
+- **Very light regularization** was best - almost unpenalized
+- **Pure ridge regression** (no feature selection) outperformed elastic net
+- This suggests clean, informative text features with good signal-to-noise
+
+**Why this worked:** EEE and non-EEE theses have distinctive vocabularies, and the TF-IDF preprocessing effectively captured these differences. The token filtering step (removing terms appearing in <5 documents) eliminated enough noise that aggressive regularization wasn't necessary.
+
+This is actually good news—it means your classification task has clear boundaries and the model can confidently use information from many terms rather than having to be heavily constrained.
+
+### 4. Iteration Yields Diminishing Returns
+
+- **Round 1**: 264 candidates → 208 EEE (79%)
+- **Round 2**: 103 candidates → 66 EEE (64%)
+- **Round 3**: 19 candidates → 10 EEE (53%)
+- **Round 4**: 9 candidates → 6 EEE (67%)
+
+As unlabeled data shrinks, the model becomes better calibrated but finds fewer new examples.
+
+## Model Limitations
+
+1. **Requires quality text**: Thin or poorly-written abstracts reduce performance
+2. **Domain-specific**: Trained on academic theses; may not generalize to other document types
+3. **Binary classification**: Cannot distinguish ecology from evolution from environment
+4. **Language-dependent**: English stopwords and tokenization; won't work on other languages
+
+## Future Improvements
+
+### For Production Use
+
+1. **Ensemble models**: Combine multiple algorithms for robustness
+2. **Bigrams/trigrams**: Capture phrases like "natural selection"
+3. **Domain dictionaries**: Custom lists of EEE vs. non-EEE terms
+4. **Confidence calibration**: Ensure probabilities match empirical frequencies
+
+### For Advanced Users
+
+The repetitive training code could be refactored into functions:
+
+```{r}
+#| label: refactoring-example
+#| eval: false
+
+# Example function structure
+train_iteration <- function(data, iteration_name, seed = 1234) {
+  # Balance classes
+  # Split data
+  # Create recipe
+  # Tune hyperparameters
+  # Train final model
+  # Return list(model, metrics, predictions)
+}
+
+# Usage
+results <- list()
+results$round1 <- train_iteration(thesis_data_v2, "round1")
+results$round2 <- train_iteration(thesis_data_v3, "round2")
+```
+
+This would reduce code duplication while maintaining clarity for beginners.
+
+# Appendix: Optional Analyses
+
+## Stratified Sampling for Review
+
+If you have many candidates and want to sample across confidence levels:
+
+```{r}
+#| label: stratified-sampling
+#| eval: false
+
+review_sample <- eeb_candidates %>%
+  dplyr::mutate(
+    confidence_bin = cut(
+      .pred_EEE, 
+      breaks = c(0.5, 0.7, 0.85, 0.95, 1.0),
+      labels = c("moderate", "high", "very_high", "extreme")
+    )
+  ) %>%
+  dplyr::group_by(confidence_bin) %>%
+  dplyr::slice_sample(n = min(50, dplyr::n())) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(desc(.pred_EEE))
+
+readr::write_csv(review_sample, "stratified_review_sample.csv")
+```
+
+This ensures you review examples across the full range of model confidence.
+
+## Model Interpretation: Top Predictive Terms
+
+To understand which words drive predictions:
+
+```{r}
+#| label: top-terms
+#| eval: false
+
+top_terms <- final_fit_v5 %>%
+  workflows::extract_fit_parsnip() %>%
+  vip::vi(lambda = best_params_v5$penalty) %>%
+  dplyr::mutate(
+    Direction = dplyr::if_else(Sign == "POS", "Other", "EEE"),
+    abs_importance = abs(Importance)
+  ) %>%
+  dplyr::group_by(Direction) %>%
+  dplyr::slice_max(abs_importance, n = 20) %>%
+  dplyr::ungroup()
+
+# View top EEE predictors
+top_terms %>%
+  dplyr::filter(Direction == "EEE") %>%
+  dplyr::select(Variable, Importance) %>%
+  print(n = 20)
+
+# View top "other" predictors
+top_terms %>%
+  dplyr::filter(Direction == "Other") %>%
+  dplyr::select(Variable, Importance) %>%
+  print(n = 20)
+```
+
+### Visualize Top Terms
+
+```{r}
+#| label: visualize-terms
+#| eval: false
+
+top_terms %>%
+  ggplot2::ggplot(
+    ggplot2::aes(
+      x = Importance, 
+      y = reorder(Variable, Importance), 
+      fill = Direction
+    )
+  ) +
+  ggplot2::geom_col() +
+  ggplot2::facet_wrap(~Direction, scales = "free_y") +
+  ggplot2::labs(
+    title = "Top 20 Predictive Terms by Category",
+    y = NULL,
+    x = "Coefficient"
+  ) +
+  ggplot2::theme_minimal()
+
+ggplot2::ggsave("top_predictive_terms.png", width = 12, height = 8)
+```
+
+This helps validate that the model learned sensible patterns and can guide manual review by highlighting unexpected associations.
+
+---
+
+## Session Info
+
+```{r}
+#| label: session-info
+
+sessionInfo()
+```
