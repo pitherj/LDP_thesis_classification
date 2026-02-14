@@ -1680,7 +1680,7 @@ The optimal hyperparameters (penalty = 0.00001, mixture = 0) reveal that:
 
 **Why this worked:** EEE and non-EEE theses have distinctive vocabularies, and the TF-IDF preprocessing effectively captured these differences. The token filtering step (removing terms appearing in <5 documents) eliminated enough noise that aggressive regularization wasn't necessary.
 
-This is actually good news—it means your classification task has clear boundaries and the model can confidently use information from many terms rather than having to be heavily constrained.
+This meant that the classification task had clear boundaries and the model could confidently use information from many terms rather than having to be heavily constrained.
 
 ### 4. Iteration Yields Diminishing Returns
 
@@ -1695,8 +1695,7 @@ As unlabeled data shrinks, the model becomes better calibrated but finds fewer n
 
 1. **Requires quality text**: Thin or poorly-written abstracts reduce performance
 2. **Domain-specific**: Trained on academic theses; may not generalize to other document types
-3. **Binary classification**: Cannot distinguish ecology from evolution from environment
-4. **Language-dependent**: English stopwords and tokenization; won't work on other languages
+3. **Language-dependent**: English stopwords and tokenization; won't work on other languages
 
 ## Future Improvements
 
@@ -1734,32 +1733,6 @@ results$round2 <- train_iteration(thesis_data_v3, "round2")
 This would reduce code duplication while maintaining clarity for beginners.
 
 # Appendix: Optional Analyses
-
-## Stratified Sampling for Review
-
-If you have many candidates and want to sample across confidence levels:
-
-```{r}
-#| label: stratified-sampling
-#| eval: false
-
-review_sample <- eeb_candidates %>%
-  dplyr::mutate(
-    confidence_bin = cut(
-      .pred_EEE, 
-      breaks = c(0.5, 0.7, 0.85, 0.95, 1.0),
-      labels = c("moderate", "high", "very_high", "extreme")
-    )
-  ) %>%
-  dplyr::group_by(confidence_bin) %>%
-  dplyr::slice_sample(n = min(50, dplyr::n())) %>%
-  dplyr::ungroup() %>%
-  dplyr::arrange(desc(.pred_EEE))
-
-readr::write_csv(review_sample, "stratified_review_sample.csv")
-```
-
-This ensures you review examples across the full range of model confidence.
 
 ## Model Interpretation: Top Predictive Terms
 
