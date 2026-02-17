@@ -1,3 +1,11 @@
+## Overview 
+
+This repository houses materials relevant to the development and implementation of a text-based classifier that uses titles and abstracts of student theses (from publicly available metadata for theses of students at Canadian post-secondary institutions) to distinguish those covering the topics of ecology, evolution, or environment from those covering any other topics.  
+
+It also houses scripts that find and download thesis metadata from a number of post-secondary institutions across Canada.
+
+***
+
 ## Contributors and contact info
 
 **Jason Pither**  
@@ -23,32 +31,21 @@
 | 2026-01-06 | Ethics approval (UBC BREB)    |
 | 2026-01-13    | Pre-registration initiated  |
 | 2026-01-13    | README created  |
-| 2026-02-14    | README last updated  |
-
-***
-
-## Overview 
-
-This repository houses materials associated with a confirmatory research study that evaluates rates of implementation of open science practices among published studies authored by graduates of the [Living Data Project](https://www.ciee-icee.ca/ldp.html) training modules, and compares those rates to those among studies published by a matched (control) group.
-
-This particular repository houses material associated with data preparation. Specifically, it includes the development of a classifier to distinguish theses covering the topics ecology, evolution, or environment, from theses that cover all other topics.
-
-It also houses scripts that find and download thesis metadata from a number of post-secondary institutions across Canada.
-
-A pre-registration for the study is available here.  And a GitHub repository that supports the pre-registration is here.
-
+| 2026-02-16    | README last updated  |
 
 ***
 
 ## Methodology
 
-See pre-registration at this location: 
+TBC
 
 ***
 
 ## Data and file overview
 
-- A data and file overview explaining the directory structure and relationships among files
+TBC
+
+***
 
 ## Requirements / dependencies
 
@@ -61,6 +58,8 @@ See pre-registration at this location:
 ***
 
 ## License
+
+MIT License
 
 ***
 
