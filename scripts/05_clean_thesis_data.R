@@ -1,13 +1,20 @@
-# 06_apply_classifier.R
-
-# Purpose: Reads in thesis metadata files, handling varied formats, and 
-# extracts relevant fields, producing a clean CSV for each institution's data
-
-# Inputs:  All CSV files in: data/processed_data/comparator-theses/
-# Outputs: Clean CSV files (one per institution) in: data/processed_data/comparator-theses/clean/
+# 05_clean_thesis_data.R
 #
-# Author: Jason Pither, with help from Claude (Sonnet 4.5)
-# Updated: 2026-02-16
+# Purpose: Reads in raw thesis metadata CSV files (varied formats per institution),
+#          extracts and standardises relevant fields, and writes one clean CSV per
+#          institution. Institutions not represented in the LDP publication data
+#          are routed to a not_used/ subdirectory automatically.
+#
+# Inputs:  All CSV files in: data/processed_data/comparator-theses/
+#          data/raw_data/LDP_author_publications.csv  (to identify LDP institutions)
+#          data/raw_data/institution_names.csv
+# Outputs: Clean CSV files for LDP-matched institutions:
+#            data/processed_data/comparator-theses/clean/
+#          Clean CSV files for unmatched institutions:
+#            data/processed_data/comparator-theses/clean/not_used/
+#
+# Author:  Jason Pither, with help from Claude (Sonnet 4.5)
+# Updated: 2026-02-19
 
 # Required R packages
 library(dplyr)
@@ -182,6 +189,48 @@ for (institution in names(all_results)) {
   }, error = function(e) {
     cat(sprintf("  -> ERROR writing %s: %s\n", institution, e$message))
   })
+}
+
+# -----------------------------------------------------------------------------
+# Route clean CSVs: move files for institutions absent from LDP data to
+# a "not_used" subdirectory so they are excluded from downstream scripts.
+# -----------------------------------------------------------------------------
+
+cat("\nChecking institutions against LDP data...\n")
+
+ldp_pubs <- readr::read_csv(
+  here::here("data", "raw_data", "LDP_author_publications.csv"),
+  show_col_types = FALSE
+)
+
+# Full institution names present in LDP publications
+ldp_inst_names <- unique(ldp_pubs$institution_name)
+
+# Map to abbreviations via institution_names.csv
+ldp_abbrevs <- institution_names %>%
+  dplyr::filter(institution_name %in% ldp_inst_names) %>%
+  dplyr::pull(institution_abbrev)
+
+# Create "not_used" subdirectory if it doesn't exist
+not_used_dir <- file.path(output_dir, "not_used")
+if (!dir.exists(not_used_dir)) {
+  dir.create(not_used_dir)
+  cat(sprintf("  Created directory: %s\n", not_used_dir))
+}
+
+# Move clean CSVs for institutions not represented in LDP data
+for (institution in names(all_results)) {
+  clean_file <- file.path(output_dir, paste0(institution, "_clean.csv"))
+  if (!file.exists(clean_file)) next   # already moved or not written
+
+  if (institution %in% ldp_abbrevs) {
+    cat(sprintf("  Kept:  %s_clean.csv\n", institution))
+  } else {
+    dest_file <- file.path(not_used_dir, paste0(institution, "_clean.csv"))
+    file.rename(clean_file, dest_file)
+    cat(sprintf("  Moved to not_used/: %s_clean.csv (not in LDP institutions)\n",
+                institution))
+  }
 }
 
 cat("\nProcessing complete!\n")

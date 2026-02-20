@@ -1,14 +1,16 @@
-# 07_apply_classifier.R
-
-# Purpose: Reads in cleaned CSV files and applies a classifier model
-# using text from the thesis titles and abstracts to categorize theses
-# as EEE (ecology, evolution, environment) or Other
-
-# Inputs:  All CSV files in: data/processed_data/comparator-theses/clean/
-# Outputs: Classified CSV files in: data/processed_data/comparator-theses/classified/
+# 06_apply_classifier.R
 #
-# Author: Jason Pither, with help from Claude (Sonnet 4.5)
-# Updated: 2026-02-16
+# Purpose: Reads cleaned thesis CSV files and applies the v2 EEE text classifier
+#          to categorize each thesis as EEE (ecology, evolution, environment) or
+#          Other, based on title and abstract text. Writes one classified CSV per
+#          institution.
+#
+# Inputs:  All CSV files in: data/processed_data/comparator-theses/clean/
+#          data/processed_data/comparator-theses/training-data/eee_text_classifier_v2.rds
+# Outputs: data/processed_data/comparator-theses/classified/[Institution]_classified.csv
+#
+# Author:  Jason Pither, with help from Claude (Sonnet 4.5)
+# Updated: 2026-02-19
 
 # Required R packages
 library(tidymodels)

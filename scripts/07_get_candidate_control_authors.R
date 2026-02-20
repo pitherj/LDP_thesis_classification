@@ -1,4 +1,4 @@
-# 08_get_candidate_control_authors.R
+# 07_get_candidate_control_authors.R
 #
 # Purpose: Identify EEE thesis authors (2020-2022) as comparator candidates and
 # retrieve their first-author publications from OpenAlex using a two-phase approach:
