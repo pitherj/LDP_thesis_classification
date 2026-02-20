@@ -20,9 +20,10 @@ library(stringr)
 library(purrr)
 
 # Load the saved classifier model
+# now using updated model 
 classifier_model <- readRDS(
   here::here("data", "processed_data", "comparator-theses",
-             "training-data", "eee_text_classifier.rds")
+             "training-data", "eee_text_classifier_v2.rds")
 )
 
 # Create output directory if it doesn't exist
@@ -70,7 +71,8 @@ for (i in seq_along(clean_csv_files)) {
       dplyr::bind_cols(classifier_model %>% predict(df, type = "class")) %>%
       dplyr::bind_cols(df) %>%
       dplyr::mutate(Category = as.character(.pred_class)) %>%
-      dplyr::select(institution, title, abstract, author, year, program, Category)
+      dplyr::select(institution, institution_fullname, title, abstract, author,
+                    firstname_lastname, year, program, Category)
 
     # Store result
     all_results[[institution]] <- df_classified

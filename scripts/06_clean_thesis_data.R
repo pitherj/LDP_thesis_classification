@@ -16,6 +16,12 @@ library(here)
 library(stringr)
 library(purrr)
 
+# Load institution full names for joining
+institution_names <- readr::read_csv(
+  here::here("data", "raw_data", "institution_names.csv"),
+  show_col_types = FALSE
+)
+
 # Create output directory if it doesn't exist
 output_dir <- here::here("data", "processed_data", "comparator-theses", "clean")
 if (!dir.exists(output_dir)) {
@@ -74,8 +80,7 @@ read_thesis_csv <- function(filepath) {
     # Extract year from authors field (format: " (YYYY-MM) Name")
     df_clean <- df %>%
       dplyr::mutate(
-        year = stringr::str_extract(authors, "\\(\\d{4}"),
-        year = stringr::str_remove(year, "\\("),
+        year = stringr::str_extract(authors, "\\d{4}"),
         author = stringr::str_remove(authors, "^\\s*\\([^)]+\\)\\s*")
       ) %>%
       dplyr::select(
@@ -100,9 +105,43 @@ read_thesis_csv <- function(filepath) {
       )
   }
 
-  # Convert year to numeric (some records may have missing years)
+  # Convert year to integer.
+  # Strategy: (1) extract first 4-digit run from whatever the year column contains
+  # (handles "2023", "Fall 2023", "2023-11", etc.); (2) if still NA, fall back to
+  # extracting the 4-digit year embedded in the author field (e.g. "(Fall 2023) Hill, Sara")
   df_clean <- df_clean %>%
-    dplyr::mutate(year = suppressWarnings(as.numeric(year)))
+    dplyr::mutate(
+      year = dplyr::coalesce(
+        suppressWarnings(as.integer(stringr::str_extract(as.character(year), "\\d{4}"))),
+        suppressWarnings(as.integer(stringr::str_extract(author,            "\\d{4}")))
+      )
+    )
+
+  # Extract firstname_lastname from author field
+  # Handles three extraneous-info formats before parsing:
+  #   Alberta:  "Lastname, Firstname|Department"  -> strip after |
+  #   Toronto:  "Lastname, Firstname; Supervisor"  -> strip after first ;
+  #   Others:   "Lastname, Firstname."             -> strip trailing period
+  # Then reverses "Lastname, Firstname" to "Firstname Lastname" (first word only as firstname)
+  df_clean <- df_clean %>%
+    dplyr::mutate(
+      author_clean = author %>%
+        stringr::str_remove("^\\s*\\([^)]+\\)\\s*") %>%  # strip leading (date) prefix e.g. "(Fall 2023) "
+        stringr::str_remove("\\|.*$") %>%                 # strip Alberta-style dept info
+        stringr::str_remove(";.*$") %>%                   # strip Toronto-style supervisor/dept info
+        stringr::str_trim() %>%
+        stringr::str_remove("\\.+$") %>%                  # strip trailing period(s)
+        stringr::str_trim(),
+      firstname_lastname = dplyr::if_else(
+        stringr::str_detect(author_clean, ","),
+        stringr::str_trim(paste(
+          stringr::word(stringr::str_remove(author_clean, "^[^,]+,\\s*"), 1),  # firstname
+          stringr::str_extract(author_clean, "^[^,]+")                          # lastname
+        )),
+        author_clean  # fallback: use as-is if no comma found
+      )
+    ) %>%
+    dplyr::select(-author_clean)
 
   # Return cleaned data
   return(df_clean)
@@ -133,10 +172,13 @@ for (institution in names(all_results)) {
   output_file <- file.path(output_dir, paste0(institution, "_clean.csv"))
 
   tryCatch({
-    readr::write_csv(all_results[[institution]], output_file)
+    df_out <- all_results[[institution]] %>%
+      dplyr::left_join(institution_names, by = c("institution" = "institution_abbrev")) %>%
+      dplyr::rename(institution_fullname = institution_name)
+    readr::write_csv(df_out, output_file)
     cat(sprintf("  -> Wrote %s (%d records)\n",
                 basename(output_file),
-                nrow(all_results[[institution]])))
+                nrow(df_out)))
   }, error = function(e) {
     cat(sprintf("  -> ERROR writing %s: %s\n", institution, e$message))
   })
