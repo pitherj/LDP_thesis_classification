@@ -35,9 +35,11 @@ The broader research goal is to evaluate whether LDP training affects student pu
 
 The pipeline proceeds in three broad stages:
 
-1. **Training data assembly**: Thesis metadata is collected from Library and Archives Canada (LAC) and institutional Scholaris repositories. A semi-supervised keyword-seeding approach is used to assign provisional EEE / Other labels, which seed a tidymodels text classifier.
+1. **Training data assembly**: Thesis metadata is collected from Library and Archives Canada (LAC) and institutional Scholaris repositories. A semi-supervised keyword-seeding approach is used to assign provisional EEE / Other labels, which seed a tidymodels text classifier.  
 2. **Classifier training and application**: The classifier is trained on title + abstract text, reviewed and refined through a manual labelling round, and then applied to all collected theses to produce EEE/Other predictions.
 3. **Comparator author identification**: EEE thesis authors who did not participate in the LDP are resolved via the OpenAlex API, and their first-author publications are retrieved. LDP student publications are also retrieved for comparison.
+
+**NOTE**: The current methodology is "version 2".  We previously attempted a different approach to developing the classifier, but it had poor accuracy in the end.
 
 ### Pipeline Workflow
 
@@ -119,7 +121,7 @@ Scripts are numbered to reflect execution order. Scripts 00 and 04 live in `data
 
 ## Requirements and Dependencies
 
-**R version**: [placeholder — specify version used]
+**R version**: R version 4.4.3 (2025-02-28)
 
 **Key packages**: `tidymodels`, `textrecipes`, `openalexR`, `httr2`, `rvest`, `RSelenium`, `here`, `tidyverse`, `dplyr`, `readr`, `stringr`, `purrr`
 
