@@ -223,7 +223,7 @@ geology_patterns <- c(
   r"(\bmetamorphic\b)", r"(\bvolcan)", r"(\bmagma\b)",
   r"(\bigneous\b)", r"(\bgeochemistry\b)", r"(\bgeochronolog)",
   r"(\bhydrogeolog)", r"(\bgeophysics\b)", r"(\bpaleontolog)",
-  r"(\bore deposit)",
+  r"(\bore deposit)", r"(\bultramafic\b)",
   r"(\brare earth\b)",  # rare earth element mining/geochemistry
   r"(\blithium\b)",     # lithium mineral resources
   r"(\bcoal\b)"         # coal geology / combustion byproducts
@@ -263,7 +263,26 @@ general_nonEEE_patterns <- c(
   r"(\bnarrative)",        # narrative/narratives: qualitative social science
   r"(\beducat)",           # education / educational (env. education is soc sci not EEE)
   r"(\blanguage\b)",       # linguistics / qualitative research
-  r"(\literacy\b)",        # qualitative research
+  r"(\bliteracy\b)",        # qualitative research
+  r"(\bsexist\b)",          # social science
+  r"(\blinguist\b)",         # social science
+  r"(\bwriting\b)",         # social science 
+  r"(\bgender\b)",          # social science  
+  r"(\bpediat\b)",          # health science
+  r"(\bgastro\b)",          # health science   
+  r"(\bglycem\b)",          # health science  
+  r"(\bpatient\b)",         # health science 
+  r"(\bserum\b)",           # health science 
+  r"(\bcase report\b)",     # health science 
+  r"(\burethr\b)",          # health science 
+  r"(\bpharma\b)",          # health science 
+  r"(\bcholine\b)",         # health science   
+  r"(\bneuro\b)",           # health science
+  r"(\bwaste management\b)",    # 
+  r"(\bcheese\b)",          # food science 
+  r"(\bpsychol\b)",         # health science 
+  r"(\bmood\b)",            # health science 
+  r"(\bmoral\b)",           # social science 
   r"(\bmotiv\b)",          # for the word "motivation" or "motivated" which appears in qualitative research
   r"(\bfairness\b)",       # for the word "fairness" which is not typical of EEE research
   r"(\bpolitical\b)"       # political science (incl. political ecology, which is soc sci)
@@ -772,7 +791,6 @@ final_fit_v2 <- final_workflow_v2 |> parsnip::fit(data = training_data_v2)
 
 ```{r}
 #| label: round1-evaluate
-#| echo: false
 #| eval: false
 
 test_preds_v2 <- final_fit_v2 |>
@@ -887,7 +905,6 @@ specificity_final <- test_predictions_final |>
 
 ```{r}
 #| label: final-metrics-table
-#| echo: false
 #| eval: false
 
 knitr::kable(final_metrics, digits = 3, caption = "Final model — test set performance")
@@ -898,7 +915,6 @@ knitr::kable(final_metrics, digits = 3, caption = "Final model — test set perf
 
 ```{r}
 #| label: final-confusion
-#| echo: false
 #| eval: false
 
 test_predictions_final |>
