@@ -14,7 +14,7 @@ The broader research goal is to evaluate whether LDP training affects student pu
 
 | Name | Role | Affiliation | Contact |
 |------|------|-------------|---------|
-| Jason Pither | PI | Department of Biology & OBIREES, UBC Okanagan | jason.pither@ubc.ca · [ORCID](https://orcid.org/0000-0002-7490-6839) |
+| Jason Pither | PI | Department of Biology & Okanagan Institute for Biodiversity, Resilience, and Ecosystem Services, UBC Okanagan | jason.pither@ubc.ca · [ORCID](https://orcid.org/0000-0002-7490-6839) |
 | Mathew Vis-Dunbar | Collaborator | Library, UBC Okanagan | [placeholder] |
 
 ---
