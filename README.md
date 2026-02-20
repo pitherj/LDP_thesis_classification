@@ -79,6 +79,7 @@ flowchart TD
 thesis_classification/
 ├── README.md
 ├── scripts/                        # Main analysis scripts (GitHub-synced)
+│   ├── README.md
 │   ├── 01-1_extract_ubc_thesis_data_from_circle.R
 │   ├── 01-2_extract_uot_uoa_theses.R
 │   ├── 01-3_extract_uoa_thesis_degrees.R
