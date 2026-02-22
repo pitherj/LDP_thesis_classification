@@ -52,6 +52,7 @@ max_num_pubs         <- 30          # exclude authors with more works (likely no
 thesis_years         <- 2020:2022   # career-stage matching criterion
 field_freq_threshold <- 0.10        # include fields present in ≥10% of LDP works
 ldp_batch_size       <- 100         # work IDs per batch for topic/author fetch
+min_prob_EEE         <- 0.70        # minimum classifier probability to include as EEE candidate
 
 target_disciplines <- c(
   "Ecology",
@@ -68,17 +69,46 @@ target_disciplines <- c(
 # -----------------------------------------------------------------------------
 
 general_nonEEE_patterns <- c(
-  r"(\bvitamin\b)",        # human/clinical nutrition
+  r"(\bvitamin\b)",        # human/clinical nutrition; rarely relevant to EEE
   r"(\bsoftware\b)",       # computer science / engineering
   r"(\bbusiness\b)",       # business / management
   r"(\bsocial justice\b)", # social sciences
-  r"(\bnarrative)",        # qualitative social science
-  r"(\beducat)",           # education / educational
+  r"(\bnarrative)",        # narrative/narratives: qualitative social science
+  r"(\beducat)",           # education / educational (env. education is soc sci not EEE)
   r"(\blanguage\b)",       # linguistics / qualitative research
-  r"(\literacy\b)",        # qualitative research (note: leading \b absent in source)
+  r"(\bliteracy\b)",       # qualitative research
+  r"(\bsexist\b)",         # social science
+  r"(\blinguist\b)",       # social science
+  r"(\bwriting\b)",        # social science
+  r"(\bgender\b)",         # social science
+  r"(\bpediat\b)",         # health science
+  r"(\bgastro\b)",         # health science
+  r"(\bglycem\b)",         # health science
+  r"(\bpatient\b)",        # health science
+  r"(\bserum\b)",          # health science
+  r"(\bcase report\b)",    # health science
+  r"(\burethr\b)",         # health science
+  r"(\bpharma\b)",         # health science
+  r"(\bcholine\b)",        # health science
+  r"(\bneuro\b)",          # health science
+  r"(\bwaste management\b)",
+  r"(\bcheese\b)",         # food science
+  r"(\bpsychol\b)",        # health science
+  r"(\bmood\b)",           # health science
+  r"(\bmoral\b)",          # social science
+  r"(\bperceive\b)",           # social science 
+  r"(\bsocioeconomic\b)",           # social science
+  r"(\bdiscourse\b)",           # social science
+  r"(\bhuman safety\b)",           # social science
+  r"(\bislamic\b)",           # social science
+  r"(\bcovid\b)",          # health science
+  r"(\breply to\b)",       # commentary
+  r"(\bmatlab\b)",         # math
+  r"(\bkinetochore\b)",
+  r"(\bplasticizer\b)",
   r"(\bmotiv\b)",          # motivation: qualitative research
   r"(\bfairness\b)",       # social science
-  r"(\bpolitical\b)"       # political science
+  r"(\bpolitical\b)"       # political science (incl. political ecology, which is soc sci)
 )
 
 geology_patterns <- c(
@@ -87,7 +117,7 @@ geology_patterns <- c(
   r"(\bmetamorphic\b)", r"(\bvolcan)", r"(\bmagma\b)",
   r"(\bigneous\b)", r"(\bgeochemistry\b)", r"(\bgeochronolog)",
   r"(\bhydrogeolog)", r"(\bgeophysics\b)", r"(\bpaleontolog)",
-  r"(\bore deposit)",
+  r"(\bore deposit)", r"(\bultramafic\b)",
   r"(\brare earth\b)",  # rare earth element mining/geochemistry
   r"(\blithium\b)",     # lithium mineral resources
   r"(\bcoal\b)"         # coal geology / combustion byproducts
@@ -339,8 +369,8 @@ EEE_theses <- purrr::map(classified_files, function(f) {
   tryCatch(
     readr::read_csv(f, show_col_types = FALSE) %>%
       dplyr::select(institution, institution_fullname, firstname_lastname,
-                    year, program, Category) %>%
-      dplyr::filter(Category == "EEE", year %in% thesis_years),
+                    year, program, Category, prob_EEE) %>%
+      dplyr::filter(Category == "EEE", prob_EEE >= min_prob_EEE, year %in% thesis_years),
     error = function(e) {
       cat("  ERROR reading", basename(f), ":", e$message, "\n"); NULL
     }

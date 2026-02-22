@@ -59,11 +59,14 @@ for (i in seq_along(clean_csv_files)) {
 
   tryCatch({
     # Read the clean CSV and create combined text field (title + abstract)
-    # Handle missing abstracts gracefully
+    # Handle missing titles (e.g. McGill) and missing abstracts gracefully:
+    # coalesce replaces NA with "" so combined_text is just the abstract when
+    # title is absent, and just the title when abstract is absent.
     df <- readr::read_csv(filepath, show_col_types = FALSE) %>%
       dplyr::mutate(
-        abstract = dplyr::if_else(is.na(abstract), "", abstract),
-        combined_text = paste(title, abstract, sep = " ")
+        title    = dplyr::coalesce(title, ""),
+        abstract = dplyr::coalesce(abstract, ""),
+        combined_text = trimws(paste(title, abstract, sep = " "))
       )
 
     # Generate predictions using the classifier model (tidymodels workflow)
@@ -74,7 +77,8 @@ for (i in seq_along(clean_csv_files)) {
       dplyr::bind_cols(df) %>%
       dplyr::mutate(Category = as.character(.pred_class)) %>%
       dplyr::select(institution, institution_fullname, title, abstract, author,
-                    firstname_lastname, year, program, Category)
+                    firstname_lastname, year, program, Category,
+                    prob_EEE = .pred_EEE)
 
     # Store result
     all_results[[institution]] <- df_classified

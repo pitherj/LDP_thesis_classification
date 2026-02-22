@@ -282,7 +282,18 @@ general_nonEEE_patterns <- c(
   r"(\bcheese\b)",          # food science 
   r"(\bpsychol\b)",         # health science 
   r"(\bmood\b)",            # health science 
-  r"(\bmoral\b)",           # social science 
+  r"(\bacetyl\b)",            # health science
+  r"(\bmoral\b)",           # social science
+  r"(\bperceive\b)",           # social science 
+  r"(\bsocioeconomic\b)",           # social science
+  r"(\bdiscourse\b)",           # social science
+  r"(\bhuman safety\b)",           # social science
+  r"(\bislamic\b)",           # social science
+  r"(\bcovid\b)",            # health science
+  r"(\breply to\b)",            # commentary
+  r"(\bmatlab\b)",            # math
+  r"(\bkinetochore\b)",            # 
+  r"(\bplasticizer\b)",            #
   r"(\bmotiv\b)",          # for the word "motivation" or "motivated" which appears in qualitative research
   r"(\bfairness\b)",       # for the word "fairness" which is not typical of EEE research
   r"(\bpolitical\b)"       # political science (incl. political ecology, which is soc sci)

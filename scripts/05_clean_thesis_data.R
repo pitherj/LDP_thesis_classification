@@ -47,9 +47,11 @@ csv_files_for_import <- setdiff(
 )
 
 # Function to extract institution name from filename
+# Stops at the first underscore or hyphen, so both "McGill-abstracts.csv"
+# and "UBC_Results_*.csv" style names are handled correctly
 extract_institution <- function(filepath) {
   basename(filepath) %>%
-    stringr::str_extract("^[^_]+")
+    stringr::str_extract("^[^-_]+")
 }
 
 # Function to detect format and read CSV appropriately
@@ -69,6 +71,12 @@ read_thesis_csv <- function(filepath) {
     # Clean column names (remove # and quotes)
     names(df) <- stringr::str_remove_all(names(df), '[#"]')
 
+    # If no title column present, add NA placeholder before selecting
+    if (!any(stringr::str_detect(names(df), "(?i)^Title$"))) {
+      df <- df %>% dplyr::mutate(title = NA_character_)
+      cat(sprintf("    Note: no 'title' field found in %s source data; title set to NA\n", institution))
+    }
+
     # Map to standard field names
     df_clean <- df %>%
       dplyr::select(
@@ -84,10 +92,21 @@ read_thesis_csv <- function(filepath) {
     # Format 2: No skip, different field names
     df <- suppressWarnings(readr::read_csv(filepath, show_col_types = FALSE))
 
-    # Extract year from authors field (format: " (YYYY-MM) Name")
+    # If no title column present, add NA placeholder before selecting
+    if (!any(stringr::str_detect(names(df), "(?i)^titles?$"))) {
+      df <- df %>% dplyr::mutate(title = NA_character_)
+      cat(sprintf("    Note: no 'title' field found in %s source data; title set to NA\n", institution))
+    }
+
+    # Extract year from authors field (format: " (YYYY-MM) Name").
+    # If a standalone year column already exists (e.g. McGill), use it in
+    # preference to the authors-field extraction.
+    year_from_authors <- stringr::str_extract(df$authors, "\\d{4}")
+    year_col          <- if ("year" %in% names(df)) as.character(df$year) else NA_character_
+
     df_clean <- df %>%
       dplyr::mutate(
-        year = stringr::str_extract(authors, "\\d{4}"),
+        year   = dplyr::coalesce(year_col, year_from_authors),
         author = stringr::str_remove(authors, "^\\s*\\([^)]+\\)\\s*")
       ) %>%
       dplyr::select(
@@ -100,16 +119,27 @@ read_thesis_csv <- function(filepath) {
       dplyr::mutate(institution = institution)
   }
 
-  # Standardize program names if available
+  # Standardize program names if available.
+  # Regex is intentionally specific to avoid mapping non-science degrees
+  # (e.g. Master of Arts, Doctor of Civil Law) to MSc/PhD.
   if ("program" %in% names(df_clean)) {
     df_clean <- df_clean %>%
       dplyr::mutate(
         program = dplyr::case_when(
-          stringr::str_detect(program, stringr::regex("ph\\.?d|doctor", ignore_case = TRUE)) ~ "PhD",
-          stringr::str_detect(program, stringr::regex("m\\.?[as]|master", ignore_case = TRUE)) ~ "MSc",
+          stringr::str_detect(program, stringr::regex("\\bph\\.?d\\.?\\b|^doctoral$|doctor of philosophy", ignore_case = TRUE)) ~ "PhD",
+          stringr::str_detect(program, stringr::regex("\\bm\\.?sc?\\b|^masters?$|master of science",       ignore_case = TRUE)) ~ "MSc",
           TRUE ~ program
         )
       )
+  }
+
+  # Retain only MSc and PhD records; drop any that did not resolve to a
+  # target degree (e.g. Master of Arts, Doctor of Civil Law from McGill)
+  n_before <- nrow(df_clean)
+  df_clean <- df_clean %>% dplyr::filter(program %in% c("MSc", "PhD"))
+  n_dropped <- n_before - nrow(df_clean)
+  if (n_dropped > 0) {
+    cat(sprintf("    Note: %d record(s) dropped — non-MSc/PhD program\n", n_dropped))
   }
 
   # Convert year to integer.
@@ -203,13 +233,9 @@ ldp_pubs <- readr::read_csv(
   show_col_types = FALSE
 )
 
-# Full institution names present in LDP publications
-ldp_inst_names <- unique(ldp_pubs$institution_name)
-
-# Map to abbreviations via institution_names.csv
-ldp_abbrevs <- institution_names %>%
-  dplyr::filter(institution_name %in% ldp_inst_names) %>%
-  dplyr::pull(institution_abbrev)
+# Institution abbreviations directly from the Institution_ID column —
+# simpler and more robust than mapping through full institution names
+ldp_abbrevs <- unique(ldp_pubs$Institution_ID)
 
 # Create "not_used" subdirectory if it doesn't exist
 not_used_dir <- file.path(output_dir, "not_used")
