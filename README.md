@@ -14,7 +14,7 @@ The broader research goal is to evaluate whether LDP training affects student pu
 
 | Name | Role | Affiliation | Contact |
 |------|------|-------------|---------|
-| Jason Pither | PI | Department of Biology & Okanagan Institute for Biodiversity, Resilience, and Ecosystem Services, UBC Okanagan | jason.pither@ubc.ca · [ORCID](https://orcid.org/0000-0002-7490-6839) |
+| Jason Pither | PI | Department of Biology & OBIREES, UBC Okanagan | jason.pither@ubc.ca · [ORCID](https://orcid.org/0000-0002-7490-6839) |
 | Mathew Vis-Dunbar | Collaborator | Library, UBC Okanagan | [placeholder] |
 
 ---
@@ -27,7 +27,7 @@ The broader research goal is to evaluate whether LDP training affects student pu
 | 2026-01-06 | Ethics approval (UBC BREB) |
 | 2026-01-13 | Pre-registration initiated |
 | 2026-01-13 | README created |
-| 2026-02-19 | README last updated |
+| 2026-02-22 | README last updated |
 
 ---
 
@@ -35,11 +35,9 @@ The broader research goal is to evaluate whether LDP training affects student pu
 
 The pipeline proceeds in three broad stages:
 
-1. **Training data assembly**: Thesis metadata is collected from Library and Archives Canada (LAC) and institutional Scholaris repositories. A semi-supervised keyword-seeding approach is used to assign provisional EEE / Other labels, which seed a tidymodels text classifier.  
+1. **Training data assembly**: Thesis metadata is collected from Library and Archives Canada (LAC) and institutional Scholaris repositories. A semi-supervised keyword-seeding approach is used to assign provisional EEE / Other labels, which seed a tidymodels text classifier.
 2. **Classifier training and application**: The classifier is trained on title + abstract text, reviewed and refined through a manual labelling round, and then applied to all collected theses to produce EEE/Other predictions.
 3. **Comparator author identification**: EEE thesis authors who did not participate in the LDP are resolved via the OpenAlex API, and their first-author publications are retrieved. LDP student publications are also retrieved for comparison.
-
-**NOTE**: The current methodology is "version 2".  We previously attempted a different approach to developing the classifier, but it had poor accuracy in the end.
 
 ### Pipeline Workflow
 
@@ -51,8 +49,8 @@ flowchart TD
     D["04_find_student_publications.R\nprivate"]
     E["LDP_author_publications.csv"]
 
-    F["Thesis metadata sources\nLAC bulk download + Scholaris scrape"]
-    G["01-1 / 01-2 / 01-3\nextraction scripts"]
+    F["Thesis metadata sources\nLAC bulk download + Scholaris scrape\n+ McGill eScholarship"]
+    G["01-1 / 01-2 / 01-3 / 01-4 / 01-5 / 01-6\nextraction scripts"]
     H["Raw thesis CSVs\nprocessed_data/comparator-theses/"]
     I["05_clean_thesis_data.R"]
     J["clean/ CSVs\nLDP institutions only"]
@@ -85,12 +83,17 @@ thesis_classification/
 │   ├── 01-1_extract_ubc_thesis_data_from_circle.R
 │   ├── 01-2_extract_uot_uoa_theses.R
 │   ├── 01-3_extract_uoa_thesis_degrees.R
+│   ├── 01-4_McGill_thesis_extraction.R
+│   ├── 01-5_McGill_thesis_metadata_extraction.R
+│   ├── 01-6_McGill_merge_titles_abstracts.R
 │   ├── 02_thesis_classification_model_training.qmd     # v1 classifier (archived)
 │   ├── 03_thesis_classification_model_training_v2.qmd  # v2 classifier (current)
 │   ├── 05_clean_thesis_data.R
 │   ├── 06_apply_classifier.R
 │   └── 07_get_candidate_control_authors.R
 └── data/                           # Not GitHub-synced (private)
+    ├── McGill_redirects.csv                            # Intermediate: McGill scrape (01-4)
+    ├── McGill-abstracts.csv                            # Intermediate: McGill scrape (01-5)
     ├── raw_data/
     │   ├── README.md
     │   ├── data-dictionary.md
@@ -108,10 +111,11 @@ thesis_classification/
         ├── comparator_author_publications.csv
         ├── comparator_checkpoint.rds
         └── comparator-theses/
-            ├── [Institution]_Results_*.csv             # Raw scraped thesis data
+            ├── [Institution]_Results_*.csv             # Raw scraped thesis data (LAC / Scholaris)
+            ├── McGill_theses.csv                       # Raw McGill thesis data (01-6 output)
             ├── clean/                                  # Cleaned thesis CSVs (LDP institutions)
             │   └── not_used/                           # Cleaned CSVs for non-LDP institutions
-            ├── classified/                             # Classifier-labelled CSVs
+            ├── classified/                             # Classifier-labelled CSVs (+ prob_EEE)
             └── training-data/                          # Saved model files + review CSVs
 ```
 
@@ -121,11 +125,11 @@ Scripts are numbered to reflect execution order. Scripts 00 and 04 live in `data
 
 ## Requirements and Dependencies
 
-**R version**: R version 4.4.3 (2025-02-28)
+**R version**: [placeholder — specify version used]
 
 **Key packages**: `tidymodels`, `textrecipes`, `openalexR`, `httr2`, `rvest`, `RSelenium`, `here`, `tidyverse`, `dplyr`, `readr`, `stringr`, `purrr`
 
-All scripts use `here::here()` for path construction and assume the working directory is the project root (`thesis_classification/`).
+Most scripts use `here::here()` for path construction and assume the working directory is the project root (`thesis_classification/`). Exception: `01-4` and `01-5` use relative paths directly and must also be run from the project root.
 
 ---
 
