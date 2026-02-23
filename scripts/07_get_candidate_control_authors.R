@@ -49,10 +49,10 @@ mailto <- "jason.pither@ubc.ca"
 min_pub_date         <- "2020-01-01"
 api_delay            <- 0.15
 max_num_pubs         <- 30          # exclude authors with more works (likely not students)
-thesis_years         <- 2020:2022   # career-stage matching criterion
+thesis_years         <- 2022:2024   # thesis submission years covered by the scraped data
 field_freq_threshold <- 0.10        # include fields present in ≥10% of LDP works
 ldp_batch_size       <- 100         # work IDs per batch for topic/author fetch
-min_prob_EEE         <- 0.70        # minimum classifier probability to include as EEE candidate
+min_prob_EEE         <- 0.75        # minimum classifier probability to include as EEE candidate
 
 target_disciplines <- c(
   "Ecology",

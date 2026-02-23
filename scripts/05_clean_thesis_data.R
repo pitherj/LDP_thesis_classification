@@ -233,9 +233,15 @@ ldp_pubs <- readr::read_csv(
   show_col_types = FALSE
 )
 
-# Institution abbreviations directly from the Institution_ID column —
-# simpler and more robust than mapping through full institution names
-ldp_abbrevs <- unique(ldp_pubs$Institution_ID)
+# Determine which full institution names are represented in the LDP data.
+# Routing via full name avoids mismatches when the filename abbreviation (e.g.
+# "Toronto") differs from the Institution_ID in LDP_author_publications.csv
+# (e.g. "UofT"), even though both map to "University of Toronto" in
+# institution_names.csv.
+ldp_inst_fullnames <- institution_names %>%
+  dplyr::filter(institution_abbrev %in% unique(ldp_pubs$Institution_ID)) %>%
+  dplyr::pull(institution_name) %>%
+  unique()
 
 # Create "not_used" subdirectory if it doesn't exist
 not_used_dir <- file.path(output_dir, "not_used")
@@ -244,12 +250,18 @@ if (!dir.exists(not_used_dir)) {
   cat(sprintf("  Created directory: %s\n", not_used_dir))
 }
 
-# Move clean CSVs for institutions not represented in LDP data
+# Move clean CSVs for institutions not represented in LDP data.
+# Look up the full name for each filename abbreviation; keep if that full name
+# appears among the LDP institutions.
 for (institution in names(all_results)) {
   clean_file <- file.path(output_dir, paste0(institution, "_clean.csv"))
   if (!file.exists(clean_file)) next   # already moved or not written
 
-  if (institution %in% ldp_abbrevs) {
+  inst_fullname <- institution_names %>%
+    dplyr::filter(institution_abbrev == institution) %>%
+    dplyr::pull(institution_name)
+
+  if (length(inst_fullname) > 0 && inst_fullname %in% ldp_inst_fullnames) {
     cat(sprintf("  Kept:  %s_clean.csv\n", institution))
   } else {
     dest_file <- file.path(not_used_dir, paste0(institution, "_clean.csv"))
