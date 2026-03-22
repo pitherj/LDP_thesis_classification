@@ -1,4 +1,4 @@
-# 01-5_McGill_thesis_metadata_extraction.R
+# 01-5_scrape_mcgill_abstracts.R
 #
 # Purpose: Visits each individual McGill thesis record URL and extracts
 #          detailed metadata (author, degree, abstract, year, URL) using
@@ -8,9 +8,9 @@
 #          Run after 01-4. Note: the loop currently starts at row 2057
 #          (resumption index from a prior run); adjust for a full run.
 #
-# Inputs:  data/McGill_redirects.csv
+# Inputs:  data/processed_data/comparator-theses/raw/McGill_redirects.csv
 #
-# Outputs: data/McGill-abstracts.csv
+# Outputs: data/processed_data/comparator-theses/raw/McGill_abstracts.csv
 #            - authors:   thesis author name
 #            - degree:    degree type (Masters or Doctoral)
 #            - abstract:  thesis abstract (English only)
@@ -23,8 +23,9 @@
 library(RSelenium)
 library(magrittr)
 library(rvest)
+library(here)
 
-thesis_urls <- read.csv("data/McGill_redirects.csv")
+thesis_urls <- read.csv(here::here("data", "processed_data", "comparator-theses", "raw", "McGill_redirects.csv"))
 metadata <- list()
 
 check_warning <- function(webpage){
@@ -116,4 +117,4 @@ df$abstract <- sub("English\n", "", df$abstract)
 df$abstract <- sub("\nRead More", "", df$abstract)
 df$location <- sub(" ", "", df$location)
 
-write.csv(df, "data/McGill-abstracts.csv", row.names = FALSE)
+write.csv(df, here::here("data", "processed_data", "comparator-theses", "raw", "McGill_abstracts.csv"), row.names = FALSE)

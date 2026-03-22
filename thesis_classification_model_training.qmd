@@ -2,13 +2,13 @@
 title: "Semi-Supervised Text Classification of Thesis Metadata (v2)"
 subtitle: "Keyword-Seeded EEE Classification Using Multi-Institutional Training Data"
 author: "Jason Pither, with help from Claude (Sonnet 4.6)"
-date: February 2026
+date: "`r Sys.Date()`"
 format:
   html:
     toc: true
     toc-location: left
     toc-depth: 3
-    code-fold: false
+    code-fold: true
     code-tools: true
     theme: cosmo
     embed-resources: true
@@ -23,7 +23,7 @@ execute:
 
 ## Motivation for v2
 
-The original classifier (v1, `02_thesis_classification_model_training.qmd`) was trained
+The original classifier (v1, `scripts/supplemental/02_thesis_classification_model_training_v1.qmd`) was trained
 exclusively on UBC thesis data, using Zoology and Botany program membership as the source
 of positive (EEE) labels. This created two problems:
 
@@ -66,7 +66,7 @@ across all seven comparator institutions. The key changes:
 
 ## Data
 
-The 7 clean CSV files in `data/processed_data/comparator-theses/clean/` are used.
+All clean CSV files in `data/processed_data/comparator-theses/clean/` are used.
 Each contains: `institution`, `title`, `abstract`, `author`, `year`, `program`.
 
 ```{r}
@@ -80,6 +80,7 @@ library(here)
 library(future)
 library(future.apply)
 library(vip)
+library(glmnet)
 ```
 
 ---
@@ -482,7 +483,7 @@ cv_folds <- rsample::vfold_cv(train_data, v = 5, strata = category)
 ## Text Preprocessing Recipe
 
 The recipe is identical to v1 except the input column name is `combined_text` (consistent
-with the pre-processing pipeline in `06_clean_thesis_data.R`).
+with the pre-processing pipeline in `02_clean_theses.R`).
 
 ```{r}
 #| label: create-recipe
@@ -688,7 +689,7 @@ unlabeled_predictions_r1 |>
 
 ```{r}
 #| label: round1-export
-#| eval: false
+#| eval: true
 
 # Export high-confidence EEE predictions for manual review
 unlabeled_predictions_r1 |>
@@ -725,7 +726,7 @@ Run them interactively once the review CSV exists.**
 
 ```{r}
 #| label: round1-load-labels
-#| eval: false
+#| eval: true
 
 # After manual review, load the verified labels:
 manual_labels_r1 <- readr::read_csv(
@@ -741,7 +742,7 @@ table(manual_labels_r1$verified_category)
 
 ```{r}
 #| label: round1-retrain
-#| eval: false
+#| eval: true
 
 # Merge verified labels back into ambiguous pool
 newly_labeled_r1 <- unlabeled_data |>
@@ -762,7 +763,7 @@ training_data_v2 |> dplyr::count(category)
 
 ```{r}
 #| label: round1-fit
-#| eval: false
+#| eval: true
 
 set.seed(1234)
 
@@ -802,7 +803,7 @@ final_fit_v2 <- final_workflow_v2 |> parsnip::fit(data = training_data_v2)
 
 ```{r}
 #| label: round1-evaluate
-#| eval: false
+#| eval: true
 
 test_preds_v2 <- final_fit_v2 |>
   predict(test_data_v2) |>
@@ -892,7 +893,7 @@ all review rounds are complete.**
 
 ```{r}
 #| label: final-performance
-#| eval: false
+#| eval: true
 
 # Replace final_fit_v2 with the last iteration's fit object when ready
 final_model <- final_fit_v2
@@ -916,17 +917,17 @@ specificity_final <- test_predictions_final |>
 
 ```{r}
 #| label: final-metrics-table
-#| eval: false
+#| eval: true
 
 knitr::kable(final_metrics, digits = 3, caption = "Final model — test set performance")
 ```
 
-- **Sensitivity (EEE recall)**: (run `final-performance` chunk to populate)
-- **Specificity (Other recall)**: (run `final-performance` chunk to populate)
+- **Sensitivity (EEE recall)**: `r round(sensitivity_final, 3)`
+- **Specificity (Other recall)**: `r round(specificity_final, 3)`
 
 ```{r}
 #| label: final-confusion
-#| eval: false
+#| eval: true
 
 test_predictions_final |>
   yardstick::conf_mat(truth = category, estimate = .pred_class)
@@ -973,51 +974,18 @@ saveRDS(
 
 # Applying the Model to New Data
 
-Once the model is saved, applying it to a new batch of thesis metadata requires three
-steps: load the model, prepare the input in the expected format, and call `predict()`.
-
-**Input requirements**: the new data must contain `title` and `abstract` columns. The
-`combined_text` feature used by the model is constructed by concatenating these two
-fields, exactly as done during training.
+The chunk below sources and executes `scripts/03_apply_classifier.R`, which loads the
+saved v2 model and applies it to all cleaned thesis CSVs in
+`data/processed_data/comparator-theses/clean/`. One classified CSV is written per
+institution to `data/processed_data/comparator-theses/classified/`, with `Category`
+(`EEE` or `other`) and `prob_EEE` (predicted probability) columns appended.
 
 ```{r}
 #| label: apply-to-new-data
-#| eval: false
+#| eval: true
 
-# 1. Load the saved model
-final_model <- readRDS(
-  here::here("data", "processed_data", "comparator-theses",
-             "training-data", "eee_text_classifier_v2.rds")
-)
-
-# 2. Load and prepare new thesis metadata
-#    Required columns: title, abstract (plus any ID columns you want to carry through)
-new_theses <- readr::read_csv("path/to/new_theses.csv") |>
-  dplyr::mutate(
-    abstract      = dplyr::if_else(is.na(abstract), "", abstract),
-    combined_text = paste(title, abstract, sep = " ")
-  )
-
-# 3. Generate predictions
-#    .pred_class  : "EEE" or "other"
-#    .pred_EEE    : probability of EEE class (0–1)
-predictions <- final_model |>
-  predict(new_theses) |>
-  dplyr::bind_cols(final_model |> predict(new_theses, type = "prob")) |>
-  dplyr::bind_cols(new_theses)
-
-# 4. Inspect and filter
-#    Use .pred_class for a hard classification, or threshold .pred_EEE
-#    directly if you need finer control (e.g. ≥ 0.70 for higher recall)
-eee_theses <- predictions |>
-  dplyr::filter(.pred_class == "EEE")
-
-cat(sprintf("Classified %d / %d theses as EEE\n", nrow(eee_theses), nrow(new_theses)))
+source(here::here("scripts", "03_apply_classifier.R"))
 ```
-
-The `Category` column written by `07_classify_theses.R` is produced by exactly this
-workflow: it loads the `.rds` model, constructs `combined_text`, and appends the
-predicted class to the cleaned thesis CSV for each institution.
 
 ---
 

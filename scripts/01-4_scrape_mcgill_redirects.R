@@ -1,4 +1,4 @@
-# 01-4_McGill_thesis_extraction.R
+# 01-4_scrape_mcgill_redirects.R
 #
 # Purpose: Scrapes thesis titles and record URLs from the McGill eScholarship
 #          repository (https://escholarship.mcgill.ca) for thesis years
@@ -7,7 +7,7 @@
 #
 # Inputs:  None (scrapes McGill eScholarship live)
 #
-# Outputs: data/McGill_redirects.csv
+# Outputs: data/processed_data/comparator-theses/raw/McGill_redirects.csv
 #            - redirects: full URL to individual thesis record page
 #            - titles:    thesis title from search results listing
 #
@@ -17,6 +17,7 @@
 library(RSelenium)
 library(magrittr)
 library(rvest)
+library(here)
 
 # in case of server load issues
 check_warning <- function(webpage){
@@ -113,6 +114,6 @@ df <- data.frame(redirects = redirects,
                  titles = titles)
 
 # export
-write.csv(df, "data/McGill_redirects.csv", row.names = FALSE)
+write.csv(df, here::here("data", "processed_data", "comparator-theses", "raw", "McGill_redirects.csv"), row.names = FALSE)
 
 

@@ -1,4 +1,4 @@
-# 06_apply_classifier.R
+# 03_apply_classifier.R
 #
 # Purpose: Reads cleaned thesis CSV files and applies the v2 EEE text classifier
 #          to categorize each thesis as EEE (ecology, evolution, environment) or

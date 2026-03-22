@@ -129,8 +129,8 @@ uot_doctorals_df$degree <- "doctoral"
 uot_masters_df$degree <- "masters"
 uot_theses_df <- rbind(uot_doctorals_df, uot_masters_df)
 
-write.csv(x = uoa_theses_df, file = "data/processed_data/comparator-theses/Alberta_Results_Scholaris.csv", row.names = FALSE)
-write.csv(x = uot_theses_df, file = "data/processed_data/comparator-theses/Toronto_Results_Scholaris.csv", row.names = FALSE)
+write.csv(x = uoa_theses_df, file = "data/processed_data/comparator-theses/raw/Alberta_Results_Scholaris.csv", row.names = FALSE)
+write.csv(x = uot_theses_df, file = "data/processed_data/comparator-theses/raw/Toronto_Results_Scholaris.csv", row.names = FALSE)
 
 # CLOSE THE DRIVER & CONNECTION
 #############################

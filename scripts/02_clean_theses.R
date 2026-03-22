@@ -1,17 +1,13 @@
-# 05_clean_thesis_data.R
+# 02_clean_theses.R
 #
 # Purpose: Reads in raw thesis metadata CSV files (varied formats per institution),
-#          extracts and standardises relevant fields, and writes one clean CSV per
+#          extracts and standardizes relevant fields, and writes one clean CSV per
 #          institution. Institutions not represented in the LDP publication data
 #          are routed to a not_used/ subdirectory automatically.
 #
-# Inputs:  All CSV files in: data/processed_data/comparator-theses/
-#          data/raw_data/LDP_author_publications.csv  (to identify LDP institutions)
-#          data/raw_data/institution_names.csv
-# Outputs: Clean CSV files for LDP-matched institutions:
-#            data/processed_data/comparator-theses/clean/
-#          Clean CSV files for unmatched institutions:
-#            data/processed_data/comparator-theses/clean/not_used/
+# Inputs:  All CSV files in: data/processed_data/comparator-theses/raw/
+#          data/institution_names.csv
+# Outputs: data/processed_data/comparator-theses/clean/[Institution]_clean.csv
 #
 # Author:  Jason Pither, with help from Claude (Sonnet 4.5)
 # Updated: 2026-02-19
@@ -25,7 +21,7 @@ library(purrr)
 
 # Load institution full names for joining
 institution_names <- readr::read_csv(
-  here::here("data", "raw_data", "institution_names.csv"),
+  here::here("data", "institution_names.csv"),
   show_col_types = FALSE
 )
 
@@ -39,11 +35,11 @@ if (!dir.exists(output_dir)) {
 # Exclude "Alberta_Results_Scholaris.csv" because it lacks program info
 csv_files_for_import <- setdiff(
   list.files(
-    here::here("data", "processed_data", "comparator-theses"),
+    here::here("data", "processed_data", "comparator-theses", "raw"),
     pattern = "\\.csv$",
     full.names = TRUE
   ),
-  here::here("data", "processed_data", "comparator-theses", "Alberta_Results_Scholaris.csv")
+  here::here("data", "processed_data", "comparator-theses", "raw", "Alberta_Results_Scholaris.csv")
 )
 
 # Function to extract institution name from filename
@@ -222,55 +218,6 @@ for (institution in names(all_results)) {
 }
 
 # -----------------------------------------------------------------------------
-# Route clean CSVs: move files for institutions absent from LDP data to
-# a "not_used" subdirectory so they are excluded from downstream scripts.
-# -----------------------------------------------------------------------------
-
-cat("\nChecking institutions against LDP data...\n")
-
-ldp_pubs <- readr::read_csv(
-  here::here("data", "raw_data", "LDP_author_publications.csv"),
-  show_col_types = FALSE
-)
-
-# Determine which full institution names are represented in the LDP data.
-# Routing via full name avoids mismatches when the filename abbreviation (e.g.
-# "Toronto") differs from the Institution_ID in LDP_author_publications.csv
-# (e.g. "UofT"), even though both map to "University of Toronto" in
-# institution_names.csv.
-ldp_inst_fullnames <- institution_names %>%
-  dplyr::filter(institution_abbrev %in% unique(ldp_pubs$Institution_ID)) %>%
-  dplyr::pull(institution_name) %>%
-  unique()
-
-# Create "not_used" subdirectory if it doesn't exist
-not_used_dir <- file.path(output_dir, "not_used")
-if (!dir.exists(not_used_dir)) {
-  dir.create(not_used_dir)
-  cat(sprintf("  Created directory: %s\n", not_used_dir))
-}
-
-# Move clean CSVs for institutions not represented in LDP data.
-# Look up the full name for each filename abbreviation; keep if that full name
-# appears among the LDP institutions.
-for (institution in names(all_results)) {
-  clean_file <- file.path(output_dir, paste0(institution, "_clean.csv"))
-  if (!file.exists(clean_file)) next   # already moved or not written
-
-  inst_fullname <- institution_names %>%
-    dplyr::filter(institution_abbrev == institution) %>%
-    dplyr::pull(institution_name)
-
-  if (length(inst_fullname) > 0 && inst_fullname %in% ldp_inst_fullnames) {
-    cat(sprintf("  Kept:  %s_clean.csv\n", institution))
-  } else {
-    dest_file <- file.path(not_used_dir, paste0(institution, "_clean.csv"))
-    file.rename(clean_file, dest_file)
-    cat(sprintf("  Moved to not_used/: %s_clean.csv (not in LDP institutions)\n",
-                institution))
-  }
-}
-
 cat("\nProcessing complete!\n")
 cat(sprintf("Clean CSV files saved to: %s\n", output_dir))
 

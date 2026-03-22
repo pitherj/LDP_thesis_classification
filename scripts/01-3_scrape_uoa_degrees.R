@@ -1,7 +1,7 @@
 library(httr2)
 library(rvest)
 
-dat <- read.csv("data/processed_data/comparator-theses/Alberta_Results_Scholaris.csv")
+dat <- read.csv("data/processed_data/comparator-theses/raw/Alberta_Results_Scholaris.csv")
 dat$degree <- NA
 
 for(i in 1:nrow(dat)) {
@@ -66,4 +66,4 @@ for(i in rownames(missing_data)){
   }
 }
 
-write.csv(dat, "data/processed_data/comparator-theses/Alberta_Results_Scholaris_with_degrees.csv", row.names = FALSE)
+write.csv(dat, "data/processed_data/comparator-theses/raw/Alberta_Results_Scholaris_with_degrees.csv", row.names = FALSE)
