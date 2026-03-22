@@ -59,3 +59,6 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 
+# Claude info
+.claude/settings.local.json
+.claude/
