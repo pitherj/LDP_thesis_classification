@@ -59,4 +59,4 @@ See `supplemental/README.md` for details.
 ## Notes
 
 - All scripts use `here::here()` for path construction; the working directory must be the project root (`LDP_thesis_classification/`).
-- Scripts 01-2, 01-4, and 01-5 require Firefox and geckodriver to be installed and configured for `RSelenium`.
+- Scripts 01-2, 01-4, and 01-5 are defaulted to Firefox and geckodriver and configured for `RSelenium`.
