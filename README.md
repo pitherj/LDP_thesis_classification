@@ -15,6 +15,8 @@ This repository houses materials for the development and implementation of a tex
 | Jason Pither | PI | Department of Biology & OBIREES, UBC Okanagan | jason.pither@ubc.ca · [ORCID](https://orcid.org/0000-0002-7490-6839) |
 | Mathew Vis-Dunbar | Collaborator | Library, UBC Okanagan | [placeholder] |
 
+**AI usage**: Claude Code (Sonnet 4.6) contributed to coding and ensuring computational reproducibility, with oversight by Jason Pither.
+
 ---
 
 ## Methodology
