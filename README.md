@@ -23,7 +23,7 @@ This repository houses materials for the development and implementation of a tex
 
 The pipeline proceeds in two broad stages:
 
-1. **Training data assembly**: Thesis metadata is collected from Library and Archives Canada (LAC) and institutional Scholaris repositories. A semi-supervised keyword-seeding approach is used to assign provisional EEE / Other labels, which seed a tidymodels text classifier.
+1. **Training data assembly**: Thesis metadata is collected from Library and Archives Canada (LAC) and institutional repositories. A semi-supervised keyword-seeding approach is used to assign provisional EEE / Other labels, which seed a tidymodels text classifier.
 2. **Classifier training and application**: The classifier is trained on title + abstract text, reviewed and refined through a manual labelling round, and then applied to all collected theses to produce EEE/Other predictions.
 
 ### Pipeline Workflow
