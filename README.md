@@ -121,7 +121,7 @@ All scripts use `here::here()` for path construction and assume the working dire
 
 ## License
 
-MIT License
+Scripts are licensed under GNU General Public License v2.0 [GPL-2.0](https://www.tldrlegal.com/license/gnu-general-public-license-v2#fulltext).
 
 ---
 
