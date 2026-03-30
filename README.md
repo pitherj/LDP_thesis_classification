@@ -17,19 +17,6 @@ This repository houses materials for the development and implementation of a tex
 
 ---
 
-## Project Timeline
-
-| Date | Activity |
-|------|----------|
-| 2025-10-10 | Project conceived |
-| 2026-01-06 | Ethics approval (UBC BREB) |
-| 2026-01-13 | Pre-registration initiated |
-| 2026-01-13 | README created |
-| 2026-02-22 | README last updated |
-| 2026-03-22 | Project reorganized: classifier notebook renamed and moved to project root (no numeric prefix); scripts renamed to reflect pipeline stages (01-x scraping, 02 cleaning, 03 classifier application); raw thesis CSVs consolidated in `comparator-theses/raw/`; McGill intermediate files moved from `data/` root to `raw/`; v1 and superseded scripts moved to `scripts/supplemental/`; comparator author retrieval and all LDP-related materials moved to separate project |
-
----
-
 ## Methodology
 
 The pipeline proceeds in two broad stages:
@@ -126,7 +113,7 @@ All scripts use `here::here()` for path construction and assume the working dire
 
 - Thesis metadata sourced from Library and Archives Canada is publicly available; see the [LAC Theses portal](https://recherche-collection-search.bac-lac.gc.ca/eng/Help/theses).
 - Code is shared under the MIT License.
-- Data sharing policy upon manuscript submission: [placeholder]
+- Data sharing policy upon production of any outputs: [placeholder]
 
 ---
 
@@ -138,11 +125,10 @@ MIT License
 
 ## Acknowledgments
 
-- OpenAlex for open bibliographic data.
 - [Placeholder — funding sources]
 
 ---
 
 ## Citing
 
-[Placeholder — to be added upon publication or pre-registration]
+[Placeholder]
