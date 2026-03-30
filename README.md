@@ -31,7 +31,7 @@ The pipeline proceeds in two broad stages:
 ```mermaid
 flowchart TD
     F["Thesis metadata sources\nLAC bulk download + Scholaris scrape\n+ McGill eScholarship"]
-    G["01-1 / 01-2 / 01-3 / 01-4 / 01-5 / 01-6\nextraction scripts"]
+    G["01-*.R scripts"]
     H["Raw thesis CSVs\ncomparator-theses/raw/"]
     I["02_clean_theses.R"]
     J["clean/ CSVs\nall institutions"]
