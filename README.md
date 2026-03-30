@@ -99,7 +99,7 @@ Scripts from Stage 2 onwards (`02_clean_theses.R`, `03_apply_classifier.R`, and 
 
 ### Stage 1 scripts (data collection)
 
-The Stage 1 scraping scripts (`01-1` through `01-6`) are **not yet fully reproducible** as standalone scripts — they depend on live institutional web repositories (UBC cIRcle, Scholaris, McGill eScholarship) whose structure and availability may change. Full reproducibility of this stage is planned for a future update. The raw scraped outputs are retained in `data/processed_data/comparator-theses/raw/` so that downstream stages can always be reproduced without re-scraping.
+The Stage 1 scraping scripts (`01-1` through `01-6`) are **not reliably fully reproducible** as standalone scripts — they depend on live institutional web repositories (UBC cIRcle, Scholaris, McGill eScholarship) whose structure and availability may change.  The raw scraped outputs are retained in `data/processed_data/comparator-theses/raw/` so that downstream stages can always be reproduced without re-scraping.
 
 ### Requirements
 
