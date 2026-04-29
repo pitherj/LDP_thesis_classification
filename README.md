@@ -36,7 +36,7 @@ flowchart TD
     I["02_clean_theses.R"]
     J["clean/ CSVs\nall institutions"]
 
-    K["thesis_classification_model_training.qmd\nClassifier training (project root)"]
+    K["scripts/thesis_classification_model_training.qmd\nClassifier training"]
     L["eee_text_classifier_v2.rds"]
     M["03_apply_classifier.R"]
     N["classified/ CSVs"]
@@ -54,10 +54,11 @@ flowchart TD
 ```
 LDP_thesis_classification/
 ├── README.md
-├── thesis_classification_model_training.qmd    # Classifier training notebook (omnibus)
 ├── thesis_classification_model_training_cache/ # Quarto render cache
 ├── scripts/                        # Analysis scripts (GitHub-synced)
 │   ├── README.md
+│   ├── thesis_classification_model_training.qmd  # Classifier training notebook (omnibus)
+│   ├── thesis_classification_prisma.qmd           # PRISMA-style pipeline flow diagram
 │   ├── 01-1_scrape_ubc_theses.R
 │   ├── 01-2_scrape_uot_uoa_theses.R
 │   ├── 01-3_scrape_uoa_degrees.R
@@ -81,7 +82,7 @@ LDP_thesis_classification/
             └── training-data/       # Saved model files + review CSVs
 ```
 
-Scripts in `scripts/` are numbered to reflect their position in the pipeline sequence (Stage 1 = data collection, Stage 2 = cleaning, Stage 3 = classifier application). The classifier training notebook (`thesis_classification_model_training.qmd`) lives at the project root as an unnumbered omnibus document.
+Scripts in `scripts/` are numbered to reflect their position in the pipeline sequence (Stage 1 = data collection, Stage 2 = cleaning, Stage 3 = classifier application). The classifier training notebook (`thesis_classification_model_training.qmd`) and the PRISMA-style flow diagram (`thesis_classification_prisma.qmd`) are unnumbered omnibus documents in `scripts/`.
 
 ---
 
@@ -95,7 +96,7 @@ R package dependencies are managed via `renv`. After cloning:
 renv::restore()   # installs all packages at recorded versions
 ```
 
-Scripts from Stage 2 onwards (`02_clean_theses.R`, `03_apply_classifier.R`, and `thesis_classification_model_training.qmd`) are fully reproducible given the data inputs.
+Scripts from Stage 2 onwards (`02_clean_theses.R`, `03_apply_classifier.R`, and `scripts/thesis_classification_model_training.qmd`) are fully reproducible given the data inputs.
 
 ### Stage 1 scripts (data collection)
 
@@ -114,7 +115,7 @@ All scripts use `here::here()` for path construction and assume the working dire
 ## Sharing and Access
 
 - Thesis metadata sourced from Library and Archives Canada is publicly available; see the [LAC Theses portal](https://recherche-collection-search.bac-lac.gc.ca/eng/Help/theses).
-- Code is shared under the MIT License.
+- Code is shared under the GNU General Public License v2.0 (GPL-2.0).
 - Data sharing policy upon production of any outputs: [placeholder]
 
 ---

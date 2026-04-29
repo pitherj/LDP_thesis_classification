@@ -3,7 +3,7 @@
 This directory contains the main analysis scripts for the thesis classification pipeline. Scripts are numbered to reflect execution order and pipeline stage. See the root `README.md` for a full pipeline diagram.
 
 **Notes**:
-- The classifier training notebook (`thesis_classification_model_training.qmd`) lives at the project root as an unnumbered omnibus document.
+- The classifier training notebook (`thesis_classification_model_training.qmd`) and the PRISMA-style flow diagram (`thesis_classification_prisma.qmd`) are unnumbered omnibus documents in this directory.
 - This directory is synced to GitHub; the `data/` directory is not.
 
 **Author**: Jason Pither
@@ -15,6 +15,8 @@ This directory contains the main analysis scripts for the thesis classification 
 
 | Script | Stage | Description |
 |--------|-------|-------------|
+| `thesis_classification_model_training.qmd` | — Classifier training | Keyword-seeded label assignment, tidymodels TF-IDF elastic-net classifier training, semi-supervised Round 1 refinement, and final v2 model save. Render with Quarto. |
+| `thesis_classification_prisma.qmd` | — Pipeline diagram | PRISMA-style flow diagram tracing thesis metadata from raw collection through cleaning, classifier training, and application to the final EEE/other predictions. Exports SVG and PDF. Render with Quarto. |
 | `01-1_scrape_ubc_theses.R` | 1 — Data collection | Scrapes thesis metadata from the UBC cIRcle repository (2022–2024) using `httr2` and `rvest`. |
 | `01-2_scrape_uot_uoa_theses.R` | 1 — Data collection | Scrapes thesis metadata from the University of Toronto and University of Alberta Scholaris repositories using `RSelenium`. Outputs to `raw/`. |
 | `01-3_scrape_uoa_degrees.R` | 1 — Data collection | Fetches degree type (masters/doctoral) for each Alberta thesis record by following individual Scholaris record URLs. Run after `01-2`. |
@@ -35,7 +37,7 @@ Scripts should be run in the following sequence. Steps 01-x require a live inter
 01-2  →  01-3  ─────────────┤  # Stage 1: Thesis data collection (streams are independent)
 01-4  →  01-5  →  01-6  ───┘
                             ↓
-              thesis_classification_model_training.qmd   # Classifier training (project root; Quarto render)
+    thesis_classification_model_training.qmd   # Classifier training (scripts/; Quarto render)
                             ↓
                             02                  # Stage 2: Clean and standardise thesis CSVs
                             ↓

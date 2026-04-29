@@ -1,0 +1,252 @@
+---
+title: "PRISMA-Style Pipeline Flow Diagram"
+subtitle: "Thesis metadata from raw collection through classifier training and application — LDP comparator identification study"
+author: "Jason Pither"
+date: today
+format:
+  html:
+    self-contained: true
+    toc: false
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+## Purpose
+
+This document renders a PRISMA-style flow diagram tracing thesis metadata from
+initial scraping across eight Canadian institutions through cleaning, keyword-seeded
+label assignment, classifier training and semi-supervised refinement, and final
+application to produce EEE / other predictions for all 16,900 clean records.
+
+### Data sources for all counts
+
+| Count | Source |
+|---|---|
+| Raw thesis counts (Stage 1) | Files in `data/processed_data/comparator-theses/raw/` |
+| Clean thesis counts (Stage 2) | Files in `data/processed_data/comparator-theses/clean/` |
+| Training set composition | `thesis_classification_model_training.qmd`; `eee_text_classifier_v2_model_info.rds` |
+| Semi-supervised review counts | `v2_manually_reviewed_labels_round1.csv` |
+| Final classified counts | Files in `data/processed_data/comparator-theses/classified/` |
+
+### Pipeline stage descriptions
+
+**Stage 1 — Thesis metadata collection (scripts 01-1 through 01-6).**
+Thesis metadata (title, abstract, author, year, degree, institution) is scraped from
+institutional repositories and merged. Sources: UBC cIRcle, University of Alberta and
+University of Toronto Scholaris repositories, and McGill eScholarship. Records for
+Manitoba, Guelph, Regina, and WLU were retrieved from Library and Archives Canada (LAC).
+
+**Stage 2 — Cleaning (`02_clean_theses.R`).**
+Raw CSVs are standardised to a common schema, filtered to LDP-relevant institutions
+and degree types (masters and doctoral), and written to `clean/` as one file per
+institution.
+
+**Stage 3 — Keyword-seeded label assignment.**
+Each clean thesis is assigned a provisional label using keyword matching on combined
+title + abstract text. Positive EEE labels require ≥ 2 EEE keyword matches with no
+near-neighbour flags. Clear negatives are records with no keyword matches;
+near-neighbour negatives are records matching geology or environmental-social keywords.
+Ambiguous records match exactly 1 EEE keyword.
+
+**Stage 4 — Initial model training (v1).**
+A tidymodels TF-IDF elastic-net logistic regression classifier is trained on the
+keyword-labeled training set (350 EEE + 350 other = 700 records total), using 5-fold
+cross-validation. The initial model is applied to ambiguous records to generate
+predicted EEE probabilities.
+
+**Stage 5 — Semi-supervised Round 1.**
+Ambiguous records with high model confidence or uncertainty are exported for manual
+review (442 records). Manually verified labels (235 EEE, 207 other) are added to the
+training set, and the final v2 model is retrained on the expanded set.
+
+**Stage 6 — Final model (v2) and classifier application (`03_apply_classifier.R`).**
+The v2 model (`eee_text_classifier_v2.rds`; 585 EEE + 557 other = 1,142 records) is
+applied to all 16,900 clean theses, appending `Category` (EEE / other) and `prob_EEE`
+columns to each institution's CSV.
+
+---
+
+```{r}
+#| label: prisma-diagram
+#| cache: false
+#| fig-cap: >
+#|   PRISMA-style flow of thesis metadata from raw collection through classifier
+#|   training and application to the final EEE / other predictions.
+#|   Blue boxes = main data flow; light yellow boxes = processing / model steps;
+#|   amber box = ambiguous / held-for-review records; light green boxes = positive
+#|   or verified-label records; dark green box = final output;
+#|   red boxes = excluded or not-used records.
+
+library(DiagrammeR)
+
+dot_src <- '
+digraph prisma {
+
+  graph [rankdir  = TB,
+         splines  = ortho,
+         nodesep  = 0.55,
+         ranksep  = 0.60,
+         fontname = "Helvetica",
+         bgcolor  = "white"]
+
+  node [fontname = "Helvetica",
+        fontsize  = 9,
+        style     = "filled,rounded",
+        shape     = rectangle,
+        margin    = "0.18,0.12",
+        penwidth  = 1.2]
+
+  edge [arrowsize = 0.7,
+        penwidth  = 1.0]
+
+  //=================================================================
+  // STAGE 1 — RAW COLLECTION
+  //=================================================================
+
+  raw [label    = "THESIS METADATA — RAW COLLECTION\nScripts 01-1 through 01-6\n8 institutions (UBC, Alberta, Toronto, McGill,\n Manitoba, Guelph, Regina, WLU)\nn = 19,641 records",
+       fillcolor = "#D6EAF8", color = "#1A5276", width = 4.2,
+       fontname  = "Helvetica-Bold"]
+
+  //=================================================================
+  // STAGE 2 — CLEANING
+  //=================================================================
+
+  clean_step [label = "02_clean_theses.R\nStandardise schema; filter to LDP-relevant\ninstitutions and degree types (masters + doctoral)",
+              fillcolor = "#FEF9E7", color = "#7D6608", width = 4.2,
+              style = "filled,rounded"]
+
+  clean [label    = "CLEAN THESES\n8 institutions\nn = 16,900 records",
+         fillcolor = "#D6EAF8", color = "#1A5276", width = 4.2]
+
+  e_clean [label = "Excluded at cleaning\nn = 2,741\n(non-LDP institutions; ineligible degree types;\nmissing / malformed records)",
+           fillcolor = "#FADBD8", color = "#922B21", width = 3.0]
+
+  //=================================================================
+  // STAGE 3 — KEYWORD-SEEDED LABEL ASSIGNMENT
+  //=================================================================
+
+  kw_step [label = "Keyword-seeded label assignment\n(thesis_classification_model_training.qmd)",
+           fillcolor = "#FEF9E7", color = "#7D6608", width = 4.2,
+           style = "filled,rounded"]
+
+  kw_pos   [label = "Positive EEE labels\n(≥ 2 EEE keyword matches,\nno near-neighbour flags)\nn = 350",
+            fillcolor = "#D5F5E3", color = "#1D6A39", width = 3.0]
+
+  kw_neg   [label = "Negative labels for training\nClear negatives: n = 200\nNear-neighbour (geology/env-soc): n = 100\nGeneral negatives: n = 50\nTotal: n = 350",
+            fillcolor = "#FADBD8", color = "#922B21", width = 3.0]
+
+  kw_ambig [label = "Ambiguous\n(exactly 1 EEE keyword match)\nHeld for semi-supervised review",
+            fillcolor = "#FFF3CD", color = "#7D6608", width = 3.0]
+
+  //=================================================================
+  // STAGE 4 — INITIAL MODEL TRAINING (v1)
+  //=================================================================
+
+  train_v1 [label = "Initial model training\nTF-IDF + elastic-net logistic regression\n5-fold CV  |  training set n = 700\n(350 EEE + 350 other)",
+            fillcolor = "#FEF9E7", color = "#7D6608", width = 4.2,
+            style = "filled,rounded"]
+
+  //=================================================================
+  // STAGE 5 — SEMI-SUPERVISED ROUND 1
+  //=================================================================
+
+  semisup [label = "Semi-supervised Round 1\nv1 model applied to ambiguous records;\nhigh-confidence and uncertain subsets exported\nfor manual review (n = 442 reviewed)",
+           fillcolor = "#FEF9E7", color = "#7D6608", width = 4.2,
+           style = "filled,rounded"]
+
+  review  [label = "Manual review output\nVerified EEE:   n = 235\nVerified other: n = 207\nTotal added:    n = 442",
+           fillcolor = "#D5F5E3", color = "#1D6A39", width = 3.0]
+
+  //=================================================================
+  // STAGE 6 — FINAL MODEL (v2) + APPLICATION
+  //=================================================================
+
+  train_v2 [label = "Refined model training\nExpanded training set n = 1,142\n(585 EEE + 557 other)\nTest accuracy = 99.6%  |  Sensitivity = 99.1%  |  Specificity = 100%",
+            fillcolor = "#FEF9E7", color = "#7D6608", width = 4.2,
+            style = "filled,rounded"]
+
+  apply [label = "03_apply_classifier.R\nv2 model applied to all 16,900 clean theses",
+         fillcolor = "#FEF9E7", color = "#7D6608", width = 4.2,
+         style = "filled,rounded"]
+
+  //=================================================================
+  // FINAL OUTPUT
+  //=================================================================
+
+  final [label = "CLASSIFIED THESES — 8 institutions  |  n = 16,900\nEEE: n = 1,682     Other: n = 15,218",
+         fillcolor = "#82E0AA", color = "#1D6A39", width = 4.2,
+         style = "filled,bold,rounded", fontsize = 11]
+
+  //=================================================================
+  // MAIN FLOW EDGES
+  //=================================================================
+
+  raw      -> clean_step
+  clean_step -> clean
+  clean    -> kw_step
+  kw_step  -> train_v1
+  train_v1 -> semisup
+  semisup  -> train_v2
+  train_v2 -> apply
+  apply    -> final
+
+  //=================================================================
+  // SIDE / DETAIL EDGES  (constraint = false: no rank effect)
+  //=================================================================
+
+  clean_step -> e_clean  [constraint = false, style = dashed, color = "#A93226"]
+  kw_step    -> kw_pos   [constraint = false, style = dashed, color = "#1D6A39"]
+  kw_step    -> kw_neg   [constraint = false, style = dashed, color = "#A93226"]
+  kw_step    -> kw_ambig [constraint = false, style = dashed, color = "#7D6608"]
+  semisup    -> review   [constraint = false, style = dashed, color = "#1D6A39"]
+
+  //=================================================================
+  // RANK GROUPS  (force same horizontal level)
+  //=================================================================
+
+  { rank = same;  clean_step;  e_clean  }
+  { rank = same;  kw_step;     kw_pos   }
+  { rank = same;  train_v1;    kw_neg   }
+  { rank = same;  semisup;     kw_ambig }
+  { rank = same;  train_v2;    review   }
+
+  //=================================================================
+  // INVISIBLE ORDERING EDGES  (enforce left-to-right within ranks)
+  //=================================================================
+
+  clean_step -> e_clean  [style = invis]
+  kw_step    -> kw_pos   [style = invis]
+  train_v1   -> kw_neg   [style = invis]
+  semisup    -> kw_ambig [style = invis]
+  train_v2   -> review   [style = invis]
+
+}
+'
+
+grViz(dot_src, height = 900, width = "100%")
+```
+
+---
+
+```{r}
+#| label: export-svg-pdf
+#| cache: false
+
+library(DiagrammeRsvg)
+library(rsvg)
+library(here)
+
+svg_str  <- DiagrammeRsvg::export_svg(grViz(dot_src))
+svg_path <- here::here("scripts", "thesis_classification_prisma.svg")
+pdf_path <- here::here("scripts", "thesis_classification_prisma.pdf")
+
+# Write SVG
+writeLines(svg_str, svg_path)
+
+# Convert SVG file to PDF
+rsvg::rsvg_pdf(svg = svg_path, file = pdf_path)
+
+message("Exported:\n  ", svg_path, "\n  ", pdf_path)
+```
