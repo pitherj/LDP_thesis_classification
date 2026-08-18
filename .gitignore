@@ -23,7 +23,7 @@
 /*.tar.gz
 
 # don't store data; we'll use proper data repo
-/data
+/data/processed_data/comparator-theses
 /renv
 
 # Output files from R CMD check
